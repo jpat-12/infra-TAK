@@ -13,6 +13,7 @@ Guard Dog is TAK Server health monitoring and auto-recovery: eight monitors plus
 | **CoT database size** | 6 hr | Monitors the TAK Server CoT (Cursor on Target) database size | Alert when over 25GB (warning) or 40GB (critical). Retention deletes rows but PostgreSQL does not free disk until **VACUUM**; alert includes tips (retention, tak-db-cleanup.service, VACUUM). |
 
 **How to run VACUUM:** On the **TAK Server** page in the console, use **Database maintenance (CoT)** → **Run VACUUM ANALYZE** (safe while TAK is running). For maximum space reclaim, use **VACUUM FULL** during a maintenance window (it locks tables).
+
 | **OOM**       | 1 min  | Scans TAK Server logs for OutOfMemoryError | Auto-restart and alert (once until log clears) |
 | **Disk**      | 1 hr   | Root and TAK logs filesystem usage | Alert at 80% (warning) and 90% (critical) |
 | **Certificate**| Daily | Let's Encrypt / TAK Server cert expiry | Alert when **40 days or less** remaining until expiry |
@@ -43,6 +44,16 @@ Guard Dog runs a small HTTP service that answers on port 8888 (by default). The 
 ## Alerts
 
 Configure an alert email in the Guard Dog **Notifications** section. Alerts are sent via your Email Relay (e.g. Brevo SMTP) when configured. Optional SMS (Twilio or Brevo) can be set for critical alerts.
+
+## Where to do things (VACUUM, retention, etc.)
+
+| Task | Where | Notes |
+|------|--------|------|
+| **VACUUM** (reclaim CoT DB disk after retention deletes) | **infra-TAK console → TAK Server** → **Database maintenance (CoT)** | Use **Run VACUUM ANALYZE** (safe while TAK is running). Use **VACUUM FULL** only during a maintenance window (locks tables). |
+| **Data retention** (how long to keep CoT data) | **TAK Server’s own web UI** (Core Config / Data Retention) | Set TTL and schedule; retention deletes rows but PostgreSQL does not free disk until you run VACUUM. |
+| **tak-db-cleanup.service** (if present) | **CLI** | `systemctl status tak-db-cleanup.service`, `sudo journalctl -u tak-db-cleanup.service -f` to see deletion activity. |
+| **VACUUM from CLI** | **CLI** | `sudo -u postgres psql -d cot -c 'VACUUM ANALYZE;'` (same as the console button). |
+| **Guard Dog activity** (restarts, alerts) | **infra-TAK console → Guard Dog** → **Activity log** | Or on the server: `cat /var/log/takguard/restarts.log`. |
 
 ## More
 
