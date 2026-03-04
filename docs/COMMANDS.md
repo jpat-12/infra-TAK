@@ -155,10 +155,10 @@ If (4) shows nothing when you trigger a reset, Authentik isn't reaching Postfix.
 
 ---
 
-## Pull newest dev and restart console
+## Pull dev branch only
 
 ```bash
-cd ~/infra-TAK && git fetch origin dev && git checkout dev && git pull origin dev && sudo systemctl restart takwerx-console
+cd ~/infra-TAK && git fetch origin dev && git checkout dev && git pull origin dev
 ```
 
 *(If your repo lives elsewhere, use that path instead of `~/infra-TAK`, e.g. `~/tak-infra`.)*
@@ -170,6 +170,16 @@ cd ~/infra-TAK && git fetch origin dev && git checkout dev && git pull origin de
 ```bash
 sudo systemctl restart takwerx-console
 ```
+
+---
+
+## Pull dev and restart console (both)
+
+```bash
+cd ~/infra-TAK && git fetch origin dev && git checkout dev && git pull origin dev && sudo systemctl restart takwerx-console
+```
+
+*(Same path note: use your actual clone path if not `~/infra-TAK`.)*
 
 ---
 
