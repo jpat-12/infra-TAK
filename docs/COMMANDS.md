@@ -247,6 +247,34 @@ When you scan the QR code and the client connects but says **No channels found**
 
 ---
 
+## Fresh deploy: user groups (avoid "only ROLE_ADMIN")
+
+On a **fresh deployment**, if you create a user, assign two (or more) groups, and after QR scan the client only shows **ROLE_ADMIN**, the usual cause is **order of operations**: the groups did not exist in Authentik when the user was created/synced.
+
+**Required order (nail it down):**
+
+1. **Create TAK groups in TAK Portal first**  
+   In TAK Portal, open **Groups** (or the group-management area) and create the groups you will use (e.g. "Field", "MyTeam"). Those become `tak_Field`, `tak_MyTeam` in Authentik/LDAP. Do this **before** creating the first user.
+
+2. **Then create the user and assign groups**  
+   Create the user in TAK Portal and assign the groups you created in step 1. TAK Portal syncs the user and their group memberships to Authentik. If the groups already exist, the user gets the correct `tak_*` groups.
+
+3. **Connect LDAP and sync**  
+   Run **Connect TAK Server to LDAP** before or after; it does not overwrite non-admin users' groups. After adding or changing groups, wait 1–2 minutes and have the client **disconnect and reconnect** so TAK Server (60 s LDAP refresh) sends updated channels.
+
+**Who controls groups:**
+
+- **You control all group membership from TAK Portal.** Create groups there, then create users and assign exactly the groups you choose. infra-TAK does not assign any user to any group except **webadmin** → **tak_ROLE_ADMIN** (for 8446 admin login). No other users are touched; no default or automatic group assignment.
+- Authentik deploy / Connect LDAP create only the **tak_ROLE_ADMIN** group in Authentik (used for webadmin). All other TAK groups are created by you in TAK Portal and sync to Authentik.
+
+**If a user still ends up with only ROLE_ADMIN:**
+
+- **Authentik**: Directory → Users → that user → **Groups** → add the correct `tak_*` groups (e.g. `tak_Field`). Remove `tak_ROLE_ADMIN` if they are not an admin. Save, wait ~1 min, then have the client reconnect.
+- **Group names**: TAK Server only uses LDAP groups whose `cn` starts with `tak_`. In Authentik, use names like `tak_Field`, `tak_MyTeam`. Names without the `tak_` prefix do not become channels.
+- If you created the user **before** creating any groups in TAK Portal, recreate the user's group membership in Authentik as above, or in TAK Portal (and wait for sync), then reconnect the client.
+
+---
+
 ## Server impact and memory (full stack)
 
 Quick snapshot of what’s using CPU and RAM. Run on the VPS.
