@@ -247,6 +247,30 @@ When you scan the QR code and the client connects but says **No channels found**
 
 ---
 
+## Server impact and memory (full stack)
+
+Quick snapshot of what’s using CPU and RAM. Run on the VPS.
+
+**Memory and swap (one-shot):**
+```bash
+free -h
+```
+
+**Docker containers (CPU %, memory, container name):**
+```bash
+docker stats --no-stream
+```
+
+**Load and top processes (live; quit with `q`):**
+```bash
+top -o %MEM
+```
+Or by CPU: `top -o %CPU`.
+
+**Rough breakdown:** TAK Server (Java) and PostgreSQL (Authentik) are usually the heaviest. Authentik (server + worker + postgres), TAK Portal, CloudTAK, Node-RED, and MediaMTX add up. Guard Dog’s 4GB swap helps when load spikes during deploy or many clients.
+
+---
+
 ## Disk full / container logs (Node-RED, Authentik, etc.)
 
 If root is 100% full, the cause is often **one huge container log** (e.g. Node-RED 8+ GB). Fix and prevent:
