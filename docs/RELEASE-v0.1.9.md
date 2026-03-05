@@ -13,6 +13,13 @@ Release Date: 2026-03-04
 
 ---
 
+## Authentik deploy reliability
+
+- **Swap before stress:** At the start of Authentik deploy (before pulling images and starting containers), the console ensures 4GB swap exists. So the box has swap before postgres + server + worker run — reduces OOM and unhealthy on small VPS where Guard Dog (which also adds swap) may deploy later.
+- **PostgreSQL then server:** PostgreSQL is started first; we wait for `pg_isready` (up to ~48s), then start the Authentik server and worker. Avoids the server hitting the DB before it accepts connections (fewer 502s and connection-refused on fresh installs).
+
+---
+
 ## Guard Dog — Full Health Monitoring
 
 Guard Dog is now fully operational with **9 monitors** for TAK Server plus service monitors for Authentik, MediaMTX, Node-RED, and CloudTAK.
@@ -89,7 +96,7 @@ Removed hidden "Manage" ghost elements from module cards for consistent card hei
 
 ## Changes
 
-- `app.py`: Guard Dog deploy (9 monitors + service monitors, 4GB swap on deploy), Guard Dog sidebar under Console, Apply Docker log limits API + card, collapsible Guard Dog sections (Notifications, DB maintenance, Activity log), TAK Server update flow, client cert creation, cert expiry API, Intermediate CA rotation, Root CA rotation, revoke old CA, ca-info API, collapsible TAK Server/Help sections, console dashboard cert expiry
+- `app.py`: Authentik deploy (4GB swap before pull/start, start PostgreSQL first and wait for pg_isready then server/worker), Guard Dog deploy (9 monitors + service monitors, 4GB swap on deploy), Guard Dog sidebar under Console, Apply Docker log limits API + card, collapsible Guard Dog sections (Notifications, DB maintenance, Activity log), TAK Server update flow, client cert creation, cert expiry API, Intermediate CA rotation, Root CA rotation, revoke old CA, ca-info API, collapsible TAK Server/Help sections, console dashboard cert expiry
 - `static/takserver.js`: Extracted TAK Server inline JS to external file
 - `static/guarddog.js`: Guard Dog page JavaScript, `gdSectionToggle`, `gdApplyDockerLogLimits`
 - `scripts/guarddog/`: All monitor scripts, health endpoint, SMS helper
