@@ -59,6 +59,42 @@ TAK Portal is left unbound so all authenticated users see it. No manual steps re
 
 ---
 
+## Authentik — landing page background (branding)
+
+**Requires authentik 2025.4.0+.** The login/landing page background is controlled by the **Default flow background** setting on the brand.
+
+**Via UI**
+
+1. Log in to Authentik as an admin.
+2. Go to **System** → **Brands**.
+3. Open your brand (e.g. the one used for `authentik.<your-domain>`).
+4. In **Branding settings**, set **Default flow background** to an image (upload or URL). You can also set **Logo**, **Favicon**, **Branding title**, and **Custom CSS** there.
+
+**Via API**
+
+1. Get a token: Authentik Admin → **System** → **Tokens** → create a token with API access (or use an existing one).
+2. List brands and get the brand UUID:
+   ```bash
+   curl -s -H "Authorization: Bearer YOUR_TOKEN" \
+     "https://authentik.YOUR_DOMAIN/api/v3/core/brands/" | jq '.results[] | {brand_uuid, domain}'
+   ```
+3. Update the brand. The field for the default flow background is **`default_flow_background`** (or in some versions **`flow_background`**). The value is usually the UUID of an uploaded media file. To see current brand fields:
+   ```bash
+   curl -s -H "Authorization: Bearer YOUR_TOKEN" \
+     "https://authentik.YOUR_DOMAIN/api/v3/core/brands/BRAND_UUID/" | jq .
+   ```
+   Then PATCH the brand with the field you want to change, e.g.:
+   ```bash
+   curl -X PATCH -H "Authorization: Bearer YOUR_TOKEN" -H "Content-Type: application/json" \
+     -d '{"default_flow_background": "MEDIA_FILE_UUID"}' \
+     "https://authentik.YOUR_DOMAIN/api/v3/core/brands/BRAND_UUID/"
+   ```
+   To use an image URL instead of an uploaded file, some versions accept a URL string; if not, upload the image via Authentik’s **File** / media API first and use the returned UUID.
+
+**Custom CSS (2025.4.0+)** in the same Brand form can further tweak the look (e.g. overlay, gradients). See [Authentik Custom CSS](https://docs.goauthentik.io/brands/custom-css/).
+
+---
+
 ## Authentik password recovery — not receiving email
 
 If users click **Forgot username or password**, enter their username, but never get the reset email, work through these checks. (TAK Portal sending email means the relay works; the break is between Authentik and the relay.)
