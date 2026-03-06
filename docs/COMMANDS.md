@@ -13,6 +13,22 @@ Then open the URL shown (e.g. `https://<VPS_IP>:5001`) and set your admin passwo
 
 ---
 
+## After reboot — does everything start? Boot order
+
+After a VPS reboot, everything that’s **enabled** starts automatically. You don’t need to start services in a specific order; dependencies are already set where it matters:
+
+| What | How it starts | Order / notes |
+|------|----------------|----------------|
+| **Console** (takwerx-console) | systemd, `After=network-online.target` | Waits for network, then starts. |
+| **Caddy** | systemd | Starts with the system. May 502 for up to a minute until backends are up; Caddy retries. |
+| **Authentik** (Docker) | Docker + Compose | Postgres starts first, then server/worker (and LDAP outpost) via `depends_on`. |
+| **TAK Server** | systemd | If **Guard Dog** is deployed, a drop-in makes it start **after** `network-online.target` and `postgresql.service`. Otherwise it still starts enabled and may come up in parallel. |
+| **Other** (Node-RED, MediaMTX, CloudTAK, etc.) | systemd or Docker | Per each module’s install (restart policies / WantedBy=multi-user). |
+
+**What to do:** Give the server **1–2 minutes** after boot. If a site returns 502, wait and refresh. If something still doesn’t come up, use **Recovery** below (backdoor at `https://<server-IP>:5001`, then Caddy → Domains → Save, and `systemctl status caddy takserver takwerx-console` / `docker ps` as needed).
+
+---
+
 ## Recovery — when nothing loads or you can’t SSH
 
 **Do these in order.** Your data (Authentik, TAK Server, configs) stays on the server; you’re only getting back in and fixing the web/Caddy layer.
