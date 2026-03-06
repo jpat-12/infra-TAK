@@ -564,7 +564,14 @@ When you want to release a version but **not** put internal/reference files on `
 
 **Excluded from main:** `docs/HANDOFF-LDAP-AUTHENTIK.md`, `docs/PROMPT-update-handoff.txt`, `docs/TAK-Data-Retention-notes.md`, `docs/TAK_Server_Configuration_Guide.pdf`, `docs/TAK-Data-Retention-Tool.pdf`, `TESTING.md`, `scripts/ldap-diagnose-and-fix.sh` (and any other internal-only files you add to dev).
 
+**Order:** Update `dev` first so the files you copy to `main` are current. Then switch to `main`, pull, copy the listed paths from (local) `dev`, commit, push, and switch back to `dev`.
+
 ```bash
+# 1) Ensure dev has the latest (so the copy to main is current)
+git checkout dev
+git pull origin dev
+
+# 2) Switch to main, update it, then copy selected files from dev
 git checkout main
 git pull origin main
 git checkout dev -- \
