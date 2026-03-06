@@ -1,8 +1,42 @@
 # infra-TAK Technical Handoff Document
 
-## 0. Current Session State (Last Updated: 2026-03-05)
+## 0. Current Session State (Last Updated: 2026-03-06)
 
 **This section is the single source of truth.** Update it when server state changes. This doc is a living handoff between machines -- only describe what is true right now.
+
+### v0.1.9 (2026-03-06) — Domain sync hardening, Caddy alias, UX/docs updates
+
+**Authentik domain sync on Update (important):**
+- Reconfigure path (`Authentik -> Update`) now syncs Authentik domain from Caddy/Domains into:
+  - `~/authentik/.env` (`AUTHENTIK_HOST`)
+  - `~/authentik/docker-compose.yml` LDAP `AUTHENTIK_HOST` + `extra_hosts`
+  - Authentik brand domain
+  - embedded outpost `authentik_host`
+- Added provider sync helper to update proxy providers that still point at `authentik.<fqdn>` to the current Authentik base URL (default `tak.<fqdn>`). This fixes redirect loops/SSL mismatch after domain changes.
+
+**Caddy Authentik alias safety net:**
+- When Authentik default host is `tak.<fqdn>`, generated Caddyfile now also serves `authentik.<fqdn>` to the same backend (`127.0.0.1:9090`) so stale redirects to `authentik.*` still terminate TLS and load.
+
+**TAK Server link UX fix:**
+- 8446 WebGUI links in UI changed from `https://takserver.<fqdn>:8446` to proxied host URL `https://takserver.<fqdn>` (still reaches password WebGUI via Caddy reverse proxy). 8443 link remains explicit `:8443`.
+
+**COMMANDS.md updates this session:**
+- Added/expanded:
+  - boot/recovery guidance ("After reboot", backdoor-first flow)
+  - insecure cert troubleshooting
+  - Authentik URL/domain-change full flow
+  - brand CSRF API workaround
+  - selective dev -> main release flow now explicitly pulls `dev` first
+  - release tagging examples updated to `v0.1.9-alpha`
+
+**README requirements update:**
+- Clarified full-stack resource expectations:
+  - real-world full module deploy can sit around ~26 GB used
+  - recommend 50+ GB disk headroom
+  - TAK Server minimums referenced (4 cores / 8 GB RAM / 40 GB disk), with guidance that full stack benefits from more.
+
+**Operational note observed repeatedly:**
+- CloudTAK can report "done" before frontend/API are comfortably warm on some hosts. Initial load may show transient 502/"Unexpected token '<'" until services settle; hard refresh often clears cached error.
 
 ### v0.1.9 (2026-03-04 / 2026-03-05) — Connect LDAP, CloudTAK, MediaMTX, COMMANDS
 
