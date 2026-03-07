@@ -76,6 +76,27 @@ These steps are also in the main **README** (backdoor, reset password, recovery)
 
 ---
 
+## Two-server TAK deploy (split DB + Core)
+
+**How to do it right:** Console runs on Server Two (Core). Do the steps in order so the DB password is captured automatically.
+
+1. **Save Config** — Set Server One host, SSH user/port/key (or password). Use “Use this infra-TAK host as Server Two” so the console host is Server Two.
+2. **Setup SSH key** — Creates a key on this host if needed.
+3. **Copy key to Server One** — One-time; you’ll be prompted for Server One’s SSH password. After this, the console can SSH to Server One without a password.
+4. **Deploy Server One (DB)** — Copies the database .deb to Server One, installs it, configures PostgreSQL and firewall. At the end it **reads the DB password from Server One over that same SSH** and saves it. You should see “DB password captured automatically. Move to step 5.”
+5. **Deploy Server Two (Core)** — Installs the core .deb on this host and points CoreConfig at Server One’s DB using the saved password.
+6. Fill out **Certificate Information**, then click **Deploy TAK Server** to generate certs and finish.
+
+**Why might the password not be captured in step 4?**
+
+- **SSH not set up** — If you skipped steps 2–3 or the key wasn’t copied, the console can’t run `sudo cat /opt/tak/CoreConfig.example.xml` on Server One. Fix: run steps 2 and 3, then run step 4 again (or paste the password manually; see below).
+- **File not there yet** — Some TAK database packages create `/opt/tak/CoreConfig.example.xml` only after a service starts or in a slightly different path. Step 4 runs the fetch right after install; if the file isn’t created until later, the read can fail. Fix: on Server One run `sudo cat /opt/tak/CoreConfig.example.xml` (or `CoreConfig.xml`) and look for `password="..."` in the connection block. Paste that value into the “DB password (from Server One)” field and **Save Config**, then run step 5.
+- **Empty or different format** — The file exists but the password is empty or in a format the parser doesn’t match. Same fix: open the file on Server One, copy the password, paste it in the wizard and Save Config.
+
+If the password wasn’t captured, the UI will say “step 5 needs it.” Paste the password from Server One into the DB password field, click **Save Config**, then click **5. Deploy Server Two (Core)**.
+
+---
+
 ## TAK Portal enrollment + Authentik (new user password)
 
 When you enroll a user in TAK Portal, they get an email with a link to TAK Portal. In infra-TAK that link goes through **Authentik** first (login/gateway), not straight to a "set password" page. The **standard TAK Portal email template** does not mention this.

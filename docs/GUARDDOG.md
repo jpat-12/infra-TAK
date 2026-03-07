@@ -45,6 +45,19 @@ Guard Dog is designed so that **a restart does not trigger another monitor to re
 
 Guard Dog runs a small HTTP service that answers on port 8888 (by default). The path `/health` returns 200 when TAK Server is considered healthy (port 8089 and processes). Use this URL in Uptime Robot or other outside-in monitoring.
 
+## Remote Database — Health Agent red
+
+In **two-server** mode, Guard Dog deploys a small **health agent** on Server One (the DB server) that listens on **port 8080** and serves `/health`. The **Health Agent** monitor (under Remote Database in the UI) is **green** when the console can reach `http://<Server One IP>:8080/health` and it returns 200.
+
+**Why it might be red:**
+
+- **Agent not deployed** — Guard Dog deploys the agent only during its deploy, and only when two-server is configured and the SSH key to Server One is present. If you set up two-server after installing Guard Dog, or SSH failed during deploy, the agent was never installed. **Fix:** Re-deploy Guard Dog (Guard Dog page → deploy again). That will SCP the agent to Server One and set up `tak-db-health.service` and open port 8080.
+- **Agent not running on Server One** — On Server One run `systemctl status tak-db-health`. If it’s inactive, run `sudo systemctl start tak-db-health` and `sudo systemctl enable tak-db-health`.
+- **Port 8080 not reachable** — Server Two (the console host) must be able to reach Server One:8080. On Server One run `sudo ufw allow 8080/tcp` (or allow from Server Two’s IP only) and ensure nothing else is blocking 8080.
+- **Agent returns 503** — The agent returns 200 only when PostgreSQL is ready, the `cot` database exists, and disk usage is under 90%. If any of those fail, it returns 503 and the monitor shows red. Fix PG, the database, or disk on Server One.
+
+**TCP + SSH** (the other Remote Database check) only verifies port 5432 and SSH; it does not run the agent. So TCP + SSH can be green while Health Agent is red if the agent isn’t installed or 8080 isn’t open.
+
 ## Alerts
 
 Configure an alert email in the Guard Dog **Notifications** section. Alerts are sent via your Email Relay (e.g. Brevo SMTP) when configured. Optional SMS (Twilio or Brevo) can be set for critical alerts.
