@@ -1,8 +1,38 @@
 # infra-TAK Technical Handoff Document
 
-## 0. Current Session State (Last Updated: 2026-03-06)
+## 0. Current Session State (Last Updated: 2026-03-07)
 
 **This section is the single source of truth.** Update it when server state changes. This doc is a living handoff between machines -- only describe what is true right now.
+
+### Two-Server Split Mode (TAK Server) — In Progress
+
+**Architecture:** Server One = PostgreSQL + TAK database .deb. Server Two = TAK Server core .deb only. Console (infra-TAK) runs on Server Two. JDBC in CoreConfig on Server Two must point at Server One with correct password.
+
+**Implemented and working:**
+- **Deploy flow:** Settings → TAK deployment: mode = Two server, Server One host + SSH key (or password), Server Two = local. Buttons: 1. Save Config → 2. Setup SSH key → 3. Copy key to Server One → 4. Deploy Server One (DB) → 5. Deploy Server Two (Core) → then Certificate Information + Deploy TAK Server.
+- **Server One setup:** SCP takserver-database .deb, install, configure PostgreSQL (`listen_addresses = '*'`, `pg_hba.conf` host rule for Core IP with `scram-sha-256`), UFW allow 5432 from Core, capture DB password from `/opt/tak/CoreConfig.example.xml` or `CoreConfig.xml` (grep + sed fallback if no `grep -oP`).
+- **Server Two setup:** Install takserver-core .deb, patch CoreConfig.xml JDBC URL and password to Server One, restart takserver.
+- **Guard Dog two-server:** Remote DB monitor (TCP + SSH to Server One, optional health agent on S1:8080). Services panel shows "PostgreSQL (S1_IP)" with TCP probe; no local PG/CoT monitors under TAK Server when two-server.
+- **TAK Server update (two-server):** Upload both takserver-core and takserver-database .deb; upgrade core locally, restore JDBC in CoreConfig, SCP DB .deb to Server One, install via SSH, start takserver.
+- **Restart controls:** Restart / Restart DB (Server One) / Restart Both / **Sync DB password** (see below) / Update config / Stop / Remove.
+- **VACUUM and CoT DB size:** Run remotely on Server One via SSH when two-server.
+- **Sync DB password:** Button "🔑 Sync DB password" (two-server only). Fetches password from Server One, patches CoreConfig.xml on Server Two, restarts takserver. API: `POST /api/takserver/two-server/sync-db-password`.
+
+**Known issue — 8443 / 8446 failing (empty DB password):**
+- **Symptom:** 8443 (cert auth) shows "Exception performing TAK Server authentication" with root cause `PSQLException: The server requested SCRAM-based authentication, but the password is an empty string.` 8446 may show "bad password" or similar. TAK Server startup can be slow; first load may time out.
+- **Cause:** CoreConfig.xml on Server Two has empty `password=""` in the `<connection>` element for the JDBC URL to Server One. Either the password was never captured during deploy or the patch didn’t run (e.g. deploy order, or grep -oP not available on Server One).
+- **Fix (UI):** On TAK Server page (two-server mode), click **Sync DB password**. Waits for restart (~1 min) then retry 8443/8446.
+- **Fix (manual):** On Server One run `sudo sed -n 's/.*password="\([^"]*\)".*/\1/p' /opt/tak/CoreConfig.example.xml | head -1` to get password. On Server Two run `sudo sed -i 's/password="[^"]*"/password="PASTE_PASSWORD_HERE"/' /opt/tak/CoreConfig.xml` then `sudo systemctl restart takserver`.
+- **Code:** Password fetch uses `_fetch_db_password_from_server_one(s1_cfg)` — tries `grep -oP` then `sed` on CoreConfig.example.xml and CoreConfig.xml. Deploy steps and "Deploy TAK Server" also fetch and patch when password missing; Sync DB password is the one-shot repair.
+
+**Other two-server notes:**
+- **pg_hba.conf:** Must have a newline before the new `host ... scram-sha-256` line; otherwise it can concatenate with previous line (e.g. `md5host`). Code does `printf "\\nhost ..."` and a repair `sed` for `md5host` → `md5\nhost`.
+- **PostgreSQL start:** Use `pg_ctlcluster 15 main start` (or restart); `systemctl start postgresql` on Debian/Ubuntu often does nothing (ExecStart=/bin/true).
+- **Preflight:** "Run Preflight" was removed; DB port check failed until after Server One was configured.
+
+**Where to continue:** If 8443/8446 still fail after Sync DB password, verify on Server One that `/opt/tak/CoreConfig.example.xml` contains a non-empty `password="..."` and that SSH from Server Two can run the same grep/sed. If password is present on S1 but sync fails, check `_ssh_probe` and key auth. Consider adding a "Show DB password" (from settings) or a test-connection step in the UI.
+
+**Other recent UI/two-server tweaks (2026-03-07):** TAK Server status area: control buttons (Restart, Restart DB, Sync DB password, etc.) moved to a second row below the status/CA text so the cert expiry (Root CA / Intermediate CA) doesn’t wrap. Cert banner: Intermediate CA shown on its own line below Root CA. Guard Dog: per-monitor green/red status dots (Port 8089, Process, Network, OOM, Disk, Cert, etc.) via `/api/guarddog/monitor-health`; cache-bust on guarddog.js with version query.
 
 ### v0.1.9 (2026-03-06) — Domain sync hardening, Caddy alias, UX/docs updates
 
@@ -800,8 +830,6 @@ Error decoding:
 
 ### Two-server remote deployment (TAK Server DB / core split)
 
-**Goal:** Support deploying TAK Server (and eventually other services) across two machines — e.g. database on one host, TAK Server core on another — with the console managing both.
+**Status:** **Implemented** (see Section 0 — Two-Server Split Mode). Console supports full two-server deploy (Server One = DB, Server Two = Core), Guard Dog remote DB monitoring, two-server TAK Server update, Restart DB / Restart Both, Sync DB password, and remote VACUUM/CoT size. Remaining follow-up: ensure 8443/8446 work reliably after Sync DB password (and that password capture works on all Server One images, including those without `grep -P`). Optional: "Test DB connection" or "Show DB password" in UI for debugging.
 
-**Approach:** Implement remote deployment for TAK Server first with an explicit DB vs core split. This will establish the pattern (discovery, credentials, config sync, health checks) for deploying any module remotely. Once that pattern is in place, it can be reused for Authentik, TAK Portal, MediaMTX, etc.
-
-**Status:** To be designed and implemented. Design discussion and decisions should be captured in this doc or a dedicated `docs/REMOTE-SERVICES-DEPLOYMENT.md` so they persist across sessions.
+**Future:** Reuse the same pattern (SSH, config sync, health checks) for other services (e.g. Authentik, TAK Portal, MediaMTX on separate hosts) if needed. Design decisions for any new remote services could go in `docs/REMOTE-SERVICES-DEPLOYMENT.md`.
