@@ -1,19 +1,33 @@
-# Pull current branch and restart console
+# Pull and restart on VPS
 
-Run line 1, wait for it to finish, then run line 2.
+Use the explicit branch flow below to avoid pulling the wrong branch.
 
-```bash
-cd /root/infra-TAK && git pull --ff-only
-```
+## Dev branch (recommended for testing)
 
 ```bash
+cd /root/infra-TAK
+git fetch origin
+git checkout dev
+git pull --ff-only origin dev
 sudo systemctl restart takwerx-console
 ```
 
-*(Repo not in /root/infra-TAK? Use your path in line 1.)*
+## Main branch (stable)
 
----
+```bash
+cd /root/infra-TAK
+git fetch origin
+git checkout main
+git pull --ff-only origin main
+sudo systemctl restart takwerx-console
+```
 
-**One-liner with 5s delay:** `cd /root/infra-TAK && git pull --ff-only && sleep 5 && sudo systemctl restart takwerx-console`
+## Quick current-branch pull (only if you already verified branch)
 
-More: **docs/COMMANDS.md**
+```bash
+cd /root/infra-TAK && git pull --ff-only && sudo systemctl restart takwerx-console
+```
+
+*(Repo not in `/root/infra-TAK`? Replace with your actual path.)*
+
+More: `docs/COMMANDS.md`
