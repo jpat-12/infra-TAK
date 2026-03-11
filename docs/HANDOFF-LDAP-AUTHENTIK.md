@@ -1,8 +1,28 @@
 # infra-TAK Technical Handoff Document
 
-## 0. Current Session State (Last Updated: 2026-03-07)
+## 0. Current Session State (Last Updated: 2026-03-11) — v0.2.0
 
 **This section is the single source of truth.** Update it when server state changes. This doc is a living handoff between machines -- only describe what is true right now.
+
+**Version:** v0.2.0 (not v0.1.10). Changelog and handoff text below reflect v0.2.0.
+
+### v0.2.0 — Authentik reconfigure, four apps, remote reconfigure, install check
+
+**Summary of code changes (2026-03-11):**
+
+- **Outpost safety:** All “add provider to embedded outpost” paths now use `_outpost_add_providers_safe(ak_url, ak_headers, provider_pks_to_add, plog)`. It GETs the full outpost, normalizes `providers` to PKs (handles both `pk`/`id` and int), appends missing PKs, and PATCHes only if the new list is not shorter than the original. This prevents any code path from removing infra-TAK, MediaMTX, or Node-RED when adding TAK Portal (or vice versa).
+- **Reconfigure creates all four apps (local):** When “Update config & reconnect” runs for **local** Authentik, the reconfigure branch now: syncs TAK Portal provider URL, calls `_ensure_authentik_nodered_app`, `_ensure_authentik_console_app` (infra-TAK + MediaMTX), and `_repair_embedded_outpost_all_apps` (by slug: infratak, stream, node-red, tak-portal). So one reconfigure can restore all four applications and their providers on the embedded outpost.
+- **Remote reconfigure:** When deployment target is **remote** (`authentik_deployment.target_mode == 'remote'`), reconfigure no longer runs local-only checks. It calls `_run_authentik_reconfigure_remote(settings, deploy_cfg, plog)`: ensures containers up on remote (`cd ~/authentik && docker compose up -d` via SSH), gets token from remote .env via `_get_authentik_env_value` (which SSHs to cat `~/authentik/.env`), then runs all API steps against the **remote** Authentik URL (`_get_authentik_api_url(settings)` → `http://<remote_host>:9090`): cookie domain, TAK Portal sync, Node-RED app, console app, repair outpost, app access policies, show password. No local `~/authentik` or `_find_authentik_install_dir()` is used for remote.
+- **Install check for reconfigure:** Replaced the single `~/authentik/docker-compose.yml` check with `_authentik_installed_for_reconfigure()`: returns True if (1) remote and deployed, or (2) that file exists, or (3) `docker ps` shows an authentik-server container, or (4) Authentik HTTP is reachable at the configured API URL. Avoids “Authentik not installed” when the stack is running but the console runs as a different user or has no local compose file (e.g. remote deploy).
+- **Local install dir fallback:** For **local** reconfigure only, if `~/authentik` has no .env/compose, we call `_find_authentik_install_dir()` which tries `~/authentik`, `/opt/authentik`, then the Docker Compose project dir from `docker inspect` (label `com.docker.compose.project.working_dir`) so reconfigure can still run when the install lives elsewhere.
+- **Deploy log for reconfigure:** “Update config & reconnect” now shows the deploy log: reconfigure no longer redirects immediately; it reveals the log card, streams “Starting update config & reconnect...”, and polls `authentik_deploy_log`. The log card exists in both “installed and running” and “installed but stopped” views.
+- **Docs:** `docs/MAIN-VS-DEV-AUTHENTIK.md` summarizes main vs dev (reconfigure behavior, install check, deploy log). `docs/RELEASE-v0.2.0.md` and README changelog updated for v0.2.0.
+
+### Current struggles — Remote Authentik deployment and applications
+
+- **Remote Authentik:** When Authentik is deployed to a **remote** host (another machine), the console does not have a local `~/authentik` (or `/opt/authentik`). Reconfigure was incorrectly running the **local** path and failing with “Authentik not fully installed” (config dir not found). This is fixed in v0.2.0 by routing remote reconfigure to `_run_authentik_reconfigure_remote`, which only uses SSH + remote API. Remaining risks: (1) SSH or network failures to the remote host during reconfigure; (2) remote .env not having `AUTHENTIK_TOKEN` or `AUTHENTIK_BOOTSTRAP_TOKEN` (reconfigure will fail with a clear log message); (3) firewall blocking console → remote:9090 (Authentik API) so API steps fail even if SSH works.
+- **Getting applications to load (four apps on outpost):** On some setups only TAK Portal appeared in the app launcher; infra-TAK, MediaMTX, and Node-RED were missing. Cause: outpost was sometimes PATCHed with a shorter provider list (e.g. only TAK Portal). Fix: all outpost updates go through `_outpost_add_providers_safe` (never shorten), and reconfigure (local and remote) explicitly creates/repairs the four apps and runs `_repair_embedded_outpost_all_apps`. If applications still don’t load after reconfigure: (1) confirm in Authentik Admin → Applications that infratak, stream, node-red, tak-portal exist; (2) confirm in Outposts → embedded outpost that all four providers are attached; (3) run “Update config & reconnect” again and watch the log for API errors (e.g. 403, timeout to remote).
+- **Operational note:** For **remote** Authentik, ensure the console host can reach the remote host on port 9090 (Authentik API) and that SSH is configured (Deployment Target → remote host, SSH key). Reconfigure reads the token from the remote .env via SSH; all other steps use HTTP to `http://<remote_host>:9090`.
 
 ### Two-Server Split Mode (TAK Server) — In Progress
 

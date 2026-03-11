@@ -79,3 +79,25 @@ So we didn’t “go back” from main; we kept main’s “don’t remove provi
 1. Safe outpost updates so no path can remove existing apps.
 2. Reconfigure steps that (re)create the four apps and repair the outpost so one click can restore the previous “working” state.
 3. Broader “installed” check and deploy log for reconfigure for better UX and reliability.
+
+---
+
+## Remote deployment (v0.2.0)
+
+When **Authentik deployment target is remote** (`authentik_deployment.target_mode == 'remote'`):
+
+- **Reconfigure** does **not** use local `~/authentik` or `_find_authentik_install_dir()`. It calls `_run_authentik_reconfigure_remote(settings, deploy_cfg, plog)` which:
+  1. SSHs to the remote host and runs `cd ~/authentik && docker compose up -d`.
+  2. Reads the API token from the remote `.env` via `_get_authentik_env_value(settings, ...)` (which SSHs and cats `~/authentik/.env`).
+  3. Uses `_get_authentik_api_url(settings)` → `http://<remote_host>:9090` for all API calls.
+  4. Runs the same API steps as local reconfigure: cookie domain, TAK Portal sync, Node-RED app, console app, repair outpost, app access policies, show password.
+- **Install check** for reconfigure: if remote and deployed (and remote host set), we allow reconfigure without any local file or Docker check.
+
+**Requirements for remote reconfigure to work:** Console must be able to (1) SSH to the remote host (key or password), and (2) reach the remote host on port **9090** (Authentik API). The remote `~/authentik/.env` must contain `AUTHENTIK_TOKEN` or `AUTHENTIK_BOOTSTRAP_TOKEN`.
+
+---
+
+## Current struggles (v0.2.0)
+
+- **Remote Authentik:** If “Update config & reconnect” still fails for a remote deploy, check: (1) SSH from console to remote works (Authentik page → Deployment Target → Test SSH); (2) from the console host, `curl -s -o /dev/null -w "%{http_code}" http://<remote_ip>:9090/` returns 200/302/301; (3) remote `~/authentik/.env` has a token line. Firewall must allow console → remote:9090.
+- **Applications not loading (only TAK Portal or subset):** Ensure “Update config & reconnect” has run successfully at least once (watch the log). Then in Authentik Admin: Applications should list infra-TAK, MediaMTX, Node-RED, TAK Portal; Outposts → embedded outpost → Providers should list all four. If not, run reconfigure again and look for API errors (403, timeouts) in the log.
