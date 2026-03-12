@@ -328,7 +328,7 @@ The Authentik LDAP outpost gets its bind flow from the provider's `authorization
 
 6. **Flow lookup pagination** — `_ensure_ldap_flow_authentication_none()` searched by `designation=authentication` (paginated). Flow could be missed on page 2+, causing "slug already exists" error. **Fix:** Search by `slug=ldap-authentication-flow` directly.
 
-**Diagnostic commands (run from `~/authentik`):**
+**Diagnostic commands (run from the Authentik host; for remote Authentik use the same curls against `http://<remote_host>:9090` with token from remote `~/authentik/.env`).** User-facing summary for 8446/LDAP 49: **docs/COMMANDS.md** → "8446 / LDAP 49 (Invalid Credentials)".
 
 ```bash
 TOKEN=$(grep AUTHENTIK_BOOTSTRAP_TOKEN ~/authentik/.env | cut -d= -f2)
