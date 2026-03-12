@@ -117,6 +117,8 @@ This has happened before; the cause and fix are the same whether Authentik is on
 
 **Order that avoids most of this (split or all-on-one):** Set **FQDN** in Caddy first, then deploy Authentik (remote or on this host), then Email Relay, then TAK Server (single or two-server). After TAK Server deploy, click **TAK Server** → **Update config** once. Deploy TAK Portal when ready, then **Caddy** → **Save & Reload** so `takportal.your-fqdn` gets a cert.
 
+**Same-host vs remote (TAK Portal + Authentik):** When Authentik is on the same host, the TAK Portal container reaches it via **host.docker.internal:9090** (deploy adds `extra_hosts` so that hostname resolves and sets **AUTHENTIK_URL** in the container environment so it overrides the repo’s `.env` if that had 127.0.0.1:9090). When Authentik is remote, TAK Portal uses the remote host:9090. After pulling new console code, **redeploy TAK Portal once** so the compose patch and env take effect; then ECONNREFUSED 127.0.0.1:9090 from the container should stop. Changes for remote must not break same-host.
+
 ---
 
 ## Two-server TAK deploy (split DB + Core)
