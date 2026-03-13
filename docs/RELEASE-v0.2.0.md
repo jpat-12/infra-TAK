@@ -146,6 +146,12 @@ Affected pages: TAK Server, Authentik, TAK Portal, CloudTAK, Node-RED, MediaMTX,
 
 ---
 
+## TAK Portal — updates preserve custom branding
+
+TAK Portal updates (pull + rebuild) and config pushes now preserve user-configured settings like `BRAND_LOGO_URL` (custom logo/photo). Whenever the console writes `settings.json` back to the container — whether from a full **Update**, **Update config**, or **reconfigure** — it reads the existing settings first, merges in the infra-TAK managed keys, and skips overwriting any key in `PRESERVE_TAKPORTAL_KEYS` that already has a value. Custom logos and branding survive all updates from here on out.
+
+---
+
 ## Email Relay — Authentik SMTP auto-configuration
 
 Deploying Email Relay now automatically:
