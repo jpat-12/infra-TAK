@@ -676,7 +676,7 @@ git checkout dev -- \
   scripts/fix-mediamtx-stream-redirect.sh \
   README.md \
   docs/COMMANDS.md \
-  docs/RELEASE-v0.1.9.md \
+  docs/RELEASE-v0.2.0.md \
   docs/GUARDDOG.md \
   docs/DISK-AND-LOGS.md \
   docs/MEDIAMTX-TAKPORTAL-ACCESS.md \
@@ -685,12 +685,12 @@ git checkout dev -- \
   docs/email-template-user-created-without-password.html \
   docs/TAK_Server_OpenAPI_v0.json
 git add -A && git status
-git commit -m "v0.1.9-alpha"
+git commit -m "v0.2.0-alpha"
 git push origin main
 git checkout dev
 ```
 
-**Note:** If a file doesn’t exist on dev (e.g. you removed `scripts/fix-mediamtx-stream-redirect.sh`), drop that line from the `git checkout dev --` list. For a new release, change `docs/RELEASE-v0.1.9.md` to the new release doc and the commit message to the new tag. After pushing, create the tag on main if you use one: `git tag v0.1.9-alpha && git push origin v0.1.9-alpha`.
+**Note:** If a file doesn’t exist on dev (e.g. you removed `scripts/fix-mediamtx-stream-redirect.sh`), drop that line from the `git checkout dev --` list. For a new release, change `docs/RELEASE-v0.2.0.md` to the new release doc and the commit message to the new tag. After pushing, create the tag on main if you use one: `git tag v0.2.0-alpha && git push origin v0.2.0-alpha`.
 
 ---
 
