@@ -102,11 +102,13 @@ Guard Dog monitors **TAK Server** (port 8089, processes, PostgreSQL, CoT DB size
 The Root CA / Intermediate CA monitor is the first step in a rotation workflow:
 
 1. **90 days out** — Guard Dog sends first notification. Go to **TAK Server → Rotate Intermediate CA** to begin rotation.
-2. **Rotate** — Creates new Intermediate CA, new server cert, regenerates admin/user certs, keeps old CA in truststore for transition.
-3. **Notify users** — At 60 days, notify users to re-enroll via TAK Portal (delete old connection, scan new QR code).
-4. **Revoke old CA** — At 30 days, use **Revoke Old CA** on the TAK Server page to remove the old CA from the truststore. Only the new CA is valid.
+2. **Rotate** — Creates new Intermediate CA, regenerates admin/user certs, keeps old CA in truststore. **The server TLS cert is not replaced**, so existing ATAK clients keep connecting; new enrollments get certs signed by the new CA.
+3. **Notify users** — When convenient, have users re-enroll (e.g. scan new CloudTAK QR) to get certs from the new CA.
+4. **Revoke old CA** — When everyone has re-enrolled, use **Revoke Old CA** on the TAK Server page. This creates the new server cert (signed by the new CA), removes the old CA from the truststore, and restarts TAK Server. After that, only re-enrolled clients can connect; the server TLS cert is now signed by the new intermediate.
 
 For **Root CA rotation** (rare, ~10 year cycle): this is a hard cutover. New Root CA, new Intermediate CA, all certs regenerated. All clients must re-enroll. Use **TAK Server → Rotate Root CA** during a planned maintenance window.
+
+**If you already rotated and ATAK shows "Remote host cert not trusted":** Earlier rotation behavior replaced the server TLS cert with one signed by the new CA, so clients that only had the old CA in their trust store could no longer connect. **Option A** — Restore from a backup of `/opt/tak/certs` (and CoreConfig.xml) from before the rotation, then restart TAK Server; all clients work again. **Option B** — Have each client update the connection’s trust store with the new CA: download the current server CA chain (e.g. **TAK Server → Download Certificates → truststore.p12** or the PEM chain from the server), then in ATAK edit the connection and set the server certificate/ca to that file (or re-enroll via TAK Portal with a new QR code that includes the new CA). After infra-TAK is updated, future rotations do **not** replace the server cert, so existing clients keep working.
 
 ## Runbook vs Guard Dog (disk full, Docker logs, etc.)
 
