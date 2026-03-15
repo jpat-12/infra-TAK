@@ -102,7 +102,7 @@ Guard Dog monitors **TAK Server** (port 8089, processes, PostgreSQL, CoT DB size
 The Root CA / Intermediate CA monitor is the first step in a rotation workflow:
 
 1. **90 days out** — Guard Dog sends first notification. Go to **TAK Server → Rotate Intermediate CA** to begin rotation.
-2. **Rotate** — Creates new Intermediate CA, regenerates admin/user certs, keeps old CA in truststore. **The server TLS cert is not replaced**, so existing ATAK clients keep connecting; new enrollments get certs signed by the new CA.
+2. **Rotate** — Creates new Intermediate CA, regenerates admin/user certs, keeps old CA in truststore. **The server TLS cert is not replaced**, so existing ATAK clients keep connecting; new enrollments get certs signed by the new CA. TAK Portal is updated with a **CA bundle containing both** the old and new intermediate CAs so clients who re-enroll once will keep working after Revoke (see [mytecknet.com/tak-pki-intermediateca](https://mytecknet.com/tak-pki-intermediateca/)).
 3. **Notify users** — When convenient, have users re-enroll (e.g. scan new CloudTAK QR) to get certs from the new CA.
 4. **Revoke old CA** — When everyone has re-enrolled, use **Revoke Old CA** on the TAK Server page. This creates the new server cert (signed by the new CA), removes the old CA from the truststore, and restarts TAK Server. After that, only re-enrolled clients can connect; the server TLS cert is now signed by the new intermediate.
 
