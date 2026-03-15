@@ -719,7 +719,6 @@ When you want to release a version but **not** put internal/reference files on `
 
 ```bash
 # 1) Ensure dev has the latest (so the copy to main is current)
-# 1) Ensure dev has the latest (so the copy to main is current)
 git checkout dev
 git pull origin dev
 
@@ -741,6 +740,7 @@ git checkout dev -- \
   README.md \
   docs/COMMANDS.md \
   docs/RELEASE-v0.2.0.md \
+  docs/RELEASE-v0.2.1.md \
   docs/GUARDDOG.md \
   docs/DISK-AND-LOGS.md \
   docs/MEDIAMTX-TAKPORTAL-ACCESS.md \
@@ -749,37 +749,7 @@ git checkout dev -- \
   docs/email-template-user-created-without-password.html \
   docs/TAK_Server_OpenAPI_v0.json
 git add -A && git status
-git commit -m "v0.2.0-alpha"
-git push origin main
-git checkout dev
-
-# 2) Switch to main, update it, then copy selected files from dev
-git checkout main
-git pull origin main
-git checkout dev -- \
-  app.py \
-  mediamtx_ldap_overlay.py \
-  start.sh \
-  fix-console-after-pull.sh \
-  reset-console-password.sh \
-  .gitignore \
-  static/ \
-  modules/ \
-  scripts/set-docker-log-limits.sh \
-  scripts/guarddog/ \
-  scripts/fix-mediamtx-stream-redirect.sh \
-  README.md \
-  docs/COMMANDS.md \
-  docs/RELEASE-v0.2.0.md \
-  docs/GUARDDOG.md \
-  docs/DISK-AND-LOGS.md \
-  docs/MEDIAMTX-TAKPORTAL-ACCESS.md \
-  docs/WORKFLOW-8446-WEBADMIN.md \
-  docs/REFERENCES.md \
-  docs/email-template-user-created-without-password.html \
-  docs/TAK_Server_OpenAPI_v0.json
-git add -A && git status
-git commit -m "v0.2.0-alpha"
+git commit -m "v0.2.1-alpha"
 git push origin main
 git checkout dev
 ```
