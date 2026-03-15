@@ -397,13 +397,17 @@ sudo systemctl restart takwerx-console
 
 ## Update Now — "dubious ownership" (git safe.directory)
 
-If **Update Now** in the console fails with `fatal: detected dubious ownership in repository at '...'`, the process running the update (e.g. root) doesn’t own the repo directory (e.g. it was cloned by another user). Git 2.35.2+ blocks this for security. **Fix:** on the server, add the repo as a safe directory for the user that runs the update (usually root):
+If **Update Now** in the console fails with `fatal: detected dubious ownership in repository at '...'`, the process running the update (often root via systemd) doesn’t own the repo directory (e.g. it was cloned by another user like `takadmin`). Git 2.35.2+ blocks this for security (CVE hardening). This can appear even if **you didn’t change permissions** — for example after reinstalling, switching service user, restoring from backup, or cloning as a different user.
+
+**Preferred fix order:**
+1. Use newer infra-TAK (current versions run `git -c safe.directory=<path>` automatically in update flows).
+2. If you still hit it, add the repo as safe for the user running updates (usually root):
 
 ```bash
 sudo git config --global --add safe.directory /path/to/infra-TAK
 ```
 
-Use the path shown in the error (e.g. `/home/tntakazureadmin/infra-TAK`). After that, **Update Now** should work. Newer console versions run `git -c safe.directory=<path>` so this is only needed if you hit the error before updating or on older installs.
+Use the path shown in the error (e.g. `/home/tntakazureadmin/infra-TAK`). After that, **Update Now** should work. This is a Git ownership safety check, not an infra-TAK ACL/permission change.
 
 ---
 
@@ -600,6 +604,65 @@ The first CloudTAK deploy builds several Docker images (api, tiles, events) and 
 
 ---
 
+## TAK Server — HTTP 500 / Java heap OOM (CloudTAK auth)
+
+If CloudTAK shows **HTTP 500** "Exception performing TAK Server authentication" and the error includes **`OutOfMemoryError: Java heap space`** at the bottom, TAK Server has run out of JVM heap when caching active groups. Many open CloudTAK tabs increase cached data and can trigger this.
+
+**Fix:** Increase TAK Server JVM heap on the host where TAK Server core runs. Option 1 — systemd drop-in:
+
+```bash
+sudo mkdir -p /etc/systemd/system/takserver.service.d
+echo -e '[Service]\nEnvironment="CATALINA_OPTS=-Xms2g -Xmx4g"' | sudo tee /etc/systemd/system/takserver.service.d/heap.conf
+sudo systemctl daemon-reload
+sudo systemctl restart takserver
+```
+
+Use `-Xmx4g` or higher if the host has RAM (e.g. 4g on 8 GB box, 8g on 16 GB). Option 2: if your install uses `/opt/tak/setenv.sh`, add `export CATALINA_OPTS="-Xms2g -Xmx4g"` there and restart. **Short-term:** close unused CloudTAK tabs to reduce active connections.
+
+---
+
+## Diagnose CloudTAK “channel status” / constant prompts (LDAP traffic)
+
+When CloudTAK (or TAK Server) keeps asking for channel status, the traffic is **TAK Server → Authentik LDAP**, not Authentik calling TAK Server. To capture what happens during login:
+
+**Setup:** SSH to the host where **CloudTAK, Authentik, and TAK Server core** run (Server Two in two-server mode). Use two terminals (or tmux panes).
+
+**Terminal 1 — LDAP outpost (bind/search traffic from TAK Server):**
+
+```bash
+# Replace with your Authentik project dir if different (e.g. /opt/authentik)
+cd ~/authentik && docker compose logs -f ldap --tail=0
+```
+
+**Terminal 2 — Authentik server HTTP (who hits Authentik and when):**
+
+```bash
+cd ~/authentik && docker compose logs -f server --tail=0 2>&1 | grep -E '"event"|"request_id"'
+```
+
+**Optional, Terminal 3 — TAK Server core (connection/channel activity):**
+
+```bash
+sudo journalctl -u takserver -f -n 0
+```
+
+**Reproduce:**
+
+1. Start the two (or three) log tails above.
+2. In the browser: open **CloudTAK** (e.g. `https://map.<your-fqdn>`), log in via Authentik if prompted.
+3. Use CloudTAK until the “channel status” or update prompt appears (or for ~60 seconds).
+4. Stop the tails (Ctrl+C).
+
+**What to look for:**
+
+- **LDAP (Terminal 1):** Bursts of `Bind request` + `Search request` for the same user (e.g. `cn=admin`) every few seconds → TAK Server (or CloudTAK backend) is polling LDAP very often for that user’s groups/attributes. That matches “constant channel/status” behavior.
+- **Authentik server (Terminal 2):** Requests to `/api/v3/flows/executor/ldap-authentication-flow` (LDAP outpost warmup) are rare. Many `GET /` or `GET /if/flow/default-authentication-flow` with `Python-urllib` or `curl` from `172.18.0.1` = something on the host hitting Authentik without a session (health checks or scripts).
+- **TAK Server (Terminal 3):** Repeated connection/channel or LDAP-related lines in the same window as the prompt → confirms TAK Server side is driving the traffic.
+
+**Conclusion:** If LDAP shows a tight loop of bind+search for one user while you use CloudTAK, the fix is on the **TAK Server / CloudTAK** side (e.g. throttle or cache LDAP lookups for channel/connection checks), not an Authentik config change. See also **docs/HANDOFF-LDAP-AUTHENTIK.md** → “Current operational note — CloudTAK channels/update prompt behavior”.
+
+---
+
 ## Disk full / container logs (Node-RED, Authentik, etc.)
 
 If root is 100% full, the cause is often **one huge container log** (e.g. Node-RED 8+ GB). Fix and prevent:
@@ -648,9 +711,9 @@ sudo systemctl restart takwerx-console
 
 When you want to release a version but **not** put internal/reference files on `main` (no HANDOFF, PROMPT, testing notes, retention PDFs, etc.), merge only the files users need to run, update, or start fresh. Run from repo root (e.g. `~/infra-TAK`).
 
-**Included on main:** app, overlay, start/scripts, static, modules, Guard Dog scripts, user-facing docs (README, COMMANDS, RELEASE, GUARDDOG, DISK-AND-LOGS, MEDIAMTX-TAKPORTAL-ACCESS, WORKFLOW-8446-WEBADMIN, REFERENCES, email template, OpenAPI spec).
+**Included on main:** app, overlay, start/scripts, static, modules, Guard Dog scripts, user-facing docs (README, COMMANDS, GUARDDOG, DISK-AND-LOGS, MEDIAMTX-TAKPORTAL-ACCESS, WORKFLOW-8446-WEBADMIN, REFERENCES, email template, OpenAPI spec), and **only the latest** release doc (e.g. `docs/RELEASE-v0.2.1.md` — change each release). Past release notes are on the GitHub Releases tab.
 
-**Excluded from main:** `docs/HANDOFF-LDAP-AUTHENTIK.md`, `docs/PROMPT-update-handoff.txt`, `docs/TAK-Data-Retention-notes.md`, `docs/TAK_Server_Configuration_Guide.pdf`, `docs/TAK-Data-Retention-Tool.pdf`, `TESTING.md`, `scripts/ldap-diagnose-and-fix.sh` (and any other internal-only files you add to dev).
+**Excluded from main:** older `docs/RELEASE-*.md` (only the current release is copied), `docs/HANDOFF-LDAP-AUTHENTIK.md`, `docs/PROMPT-update-handoff.txt`, `docs/TAK-Data-Retention-notes.md`, `docs/TAK_Server_Configuration_Guide.pdf`, `docs/TAK-Data-Retention-Tool.pdf`, `TESTING.md`, `scripts/ldap-diagnose-and-fix.sh` (and any other internal-only files you add to dev).
 
 **Order:** Update `dev` first so the files you copy to `main` are current. Then switch to `main`, pull, copy the listed paths from (local) `dev`, commit, push, and switch back to `dev`.
 
@@ -676,7 +739,7 @@ git checkout dev -- \
   scripts/fix-mediamtx-stream-redirect.sh \
   README.md \
   docs/COMMANDS.md \
-  docs/RELEASE-v0.2.0.md \
+  docs/RELEASE-v0.2.1.md \
   docs/GUARDDOG.md \
   docs/DISK-AND-LOGS.md \
   docs/MEDIAMTX-TAKPORTAL-ACCESS.md \
@@ -685,12 +748,12 @@ git checkout dev -- \
   docs/email-template-user-created-without-password.html \
   docs/TAK_Server_OpenAPI_v0.json
 git add -A && git status
-git commit -m "v0.2.0-alpha"
+git commit -m "v0.2.1-alpha"
 git push origin main
 git checkout dev
 ```
 
-**Note:** If a file doesn’t exist on dev (e.g. you removed `scripts/fix-mediamtx-stream-redirect.sh`), drop that line from the `git checkout dev --` list. For a new release, change `docs/RELEASE-v0.2.0.md` to the new release doc and the commit message to the new tag. After pushing, create the tag on main if you use one: `git tag v0.2.0-alpha && git push origin v0.2.0-alpha`.
+**Note:** If a file doesn’t exist on dev (e.g. you removed `scripts/fix-mediamtx-stream-redirect.sh`), drop that line from the `git checkout dev --` list. For a new release, change `docs/RELEASE-v0.2.1.md` to the new release doc (e.g. `docs/RELEASE-v0.2.2.md`) and the commit message to the new version. After pushing, create the tag on main if you use one: `git tag v0.2.1-alpha && git push origin v0.2.1-alpha`.
 
 ---
 
