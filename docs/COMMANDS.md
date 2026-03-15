@@ -604,6 +604,31 @@ The first CloudTAK deploy builds several Docker images (api, tiles, events) and 
 
 ---
 
+## CloudTAK — version on webpage vs GitHub
+
+**Why doesn’t the webpage show the new version?**  
+GitHub and infra-TAK may show **v12.103.0** (from the repo or from `~/CloudTAK` on disk), but the **CloudTAK login page** still shows **v12.102.3**. That’s because the **webpage is served by the running Docker containers**, not by the files on disk. A **git pull** (or pulling the CloudTAK repo) only updates source; the containers keep serving the old built image until you rebuild and restart.
+
+**Fix — get the new version on the site:**  
+On the **CloudTAK** card, use **⬆ Update** (not “Update config”). That pulls the latest stable CloudTAK release, **rebuilds** the Docker images, and restarts the containers. After it finishes, the map/login page will show the new version. “Update config” only restarts with existing images; it does **not** rebuild.
+
+**Forcing a new HTTPS certificate:**  
+CloudTAK is served by **Caddy** (e.g. `map.<your-fqdn>`, `tiles.<your-fqdn>`). Caddy gets Let’s Encrypt certs automatically.
+
+- **Normal refresh:** **Caddy SSL** → Domains → **Update & Reload** (or **Reload**). That regenerates the Caddyfile and reloads Caddy; Caddy will use existing certs or obtain new ones as needed.
+- **Cert stuck (wrong domain, expired, or browser still shows old cert):**  
+  - **Option A — clean slate:** Remove CloudTAK from the CloudTAK page (**Remove**), then **Deploy** again. That redeploys with a fresh Caddyfile and cert flow. Your CloudTAK config (e.g. TAK URL, Authentik) is in infra-TAK settings and is reapplied on deploy.  
+  - **Option B — force Caddy to re-issue:** On the server, delete the cert for the CloudTAK host(s) so Caddy fetches a new one on next request:
+    ```bash
+    # Replace YOUR_FQDN with your base domain (e.g. example.com).
+    # CloudTAK subdomains are typically map.*, tiles.*, video.* — same base.
+    sudo rm -rf /var/lib/caddy/.local/share/caddy/certificates/acme-v02.api.letsencrypt.org-directory/map.YOUR_FQDN
+    sudo systemctl reload caddy
+    ```
+    Then open `https://map.<your-fqdn>` in the browser; Caddy will obtain a new cert for that host.
+
+---
+
 ## TAK Server — HTTP 500 / Java heap OOM (CloudTAK auth)
 
 If CloudTAK shows **HTTP 500** "Exception performing TAK Server authentication" and the error includes **`OutOfMemoryError: Java heap space`** at the bottom, TAK Server has run out of JVM heap when caching active groups. Many open CloudTAK tabs increase cached data and can trigger this.
@@ -618,6 +643,17 @@ sudo systemctl restart takserver
 ```
 
 Use `-Xmx4g` or higher if the host has RAM (e.g. 4g on 8 GB box, 8g on 16 GB). Option 2: if your install uses `/opt/tak/setenv.sh`, add `export CATALINA_OPTS="-Xms2g -Xmx4g"` there and restart. **Short-term:** close unused CloudTAK tabs to reduce active connections.
+
+---
+
+## CloudTAK — associating a new p12 / client certificate
+
+infra-TAK does not document CloudTAK's certificate or connection flow. For how to associate a new p12 or client certificate with CloudTAK, use **CloudTAK's official docs and repo**:
+
+- **Docs:** [https://docs.cloudtak.io](https://docs.cloudtak.io) — Deploy, Administration Guide, User Guide.
+- **GitHub:** [https://github.com/dfpc-coe/CloudTAK](https://github.com/dfpc-coe/CloudTAK) — in the `docs/` folder, see e.g. **COTAK CloudTAK Initialization and Setup** (PDF) for setup and certificate/connection steps.
+
+Client certificates (.p12) are created on the **TAK Server** side (e.g. infra-TAK → TAK Server → Create Client Certificate); how CloudTAK uses or replaces them is in CloudTAK's documentation.
 
 ---
 
