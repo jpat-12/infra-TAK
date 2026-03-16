@@ -62,16 +62,12 @@ More: `docs/COMMANDS.md`
 
 If you updated the MediaMTX web editor and **https://stream.&lt;your-fqdn&gt;** (or your stream subdomain) no longer loads (502, connection refused, or blank):
 
-### Global fix
+### Fix from infra-TAK
 
-**Preferred:** In infra-TAK, open **MediaMTX**, then click **🔧 Fix web editor**. This applies the fix to the same host (or remote) that MediaMTX uses and restarts the web editor. No SSH needed.
+In infra-TAK, open **MediaMTX**, then click **🔧 Patch web editor**. This patches and restarts the web editor on the same host (or remote) that MediaMTX uses. No CLI needed.
 
-**Fallback (e.g. if you can’t open the console):** After pulling the latest infra-TAK, run this once on each affected VPS:
+If the Web Console still doesn't load, use **Web editor logs** on the MediaMTX page to see why the service is failing.
 
-```bash
-cd $(grep -oP 'WorkingDirectory=\K.*' /etc/systemd/system/takwerx-console.service 2>/dev/null || echo /root/infra-TAK)
-sudo bash scripts/fix-mediamtx-webeditor-now.sh
-```
 
 ---
 
