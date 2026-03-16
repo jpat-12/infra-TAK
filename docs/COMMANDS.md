@@ -752,18 +752,21 @@ git checkout dev -- \
   scripts/guarddog/ \
   README.md \
   docs/COMMANDS.md \
-  docs/RELEASE-v0.2.2.md \
+  docs/RELEASE-v0.2.3-alpha.md \
   docs/GUARDDOG.md \
   docs/DISK-AND-LOGS.md \
   docs/MEDIAMTX-TAKPORTAL-ACCESS.md \
   docs/WORKFLOW-8446-WEBADMIN.md \
   docs/REFERENCES.md \
+  docs/KU-BAND-SIMULATOR-SYNOPSIS.md \
+  docs/HLS-FIX-CLIENT-VS-SERVER.md \
+  docs/PULL-AND-RESTART.md \
   docs/email-template-user-created-without-password.html \
   docs/TAK_Server_OpenAPI_v0.json
 git add -A && git status
-git commit -m "v0.2.2-alpha"
+git commit -m "v0.2.3-alpha"
 git push origin main
-git tag v0.2.2-alpha && git push origin v0.2.2-alpha
+git tag v0.2.3-alpha && git push origin v0.2.3-alpha
 git checkout dev
 ```
 
