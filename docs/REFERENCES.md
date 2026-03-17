@@ -33,6 +33,11 @@ Canonical links used when working on infra-TAK. Keep these so tooling and docs a
 - **From the Configuration Guide:** Retention is documented in Ch. 19 and delegated to the [Data Retention Tool](https://wiki.tak.gov/display/TPC/Data+Retention+Tool) wiki. The guide does not describe PostgreSQL disk reclaim (VACUUM) or `tak-db-cleanup.service`.
 - **infra-TAK strategy (aligned with community):** Guard Dog monitors CoT DB size (alert at 25GB / 40GB); TAK Server page offers **VACUUM ANALYZE** and **VACUUM FULL** (PostgreSQL does not free disk until VACUUM). Alert text and [docs/GUARDDOG.md](GUARDDOG.md) mention: Data Retention in Web UI, retention process / `tak-db-cleanup.service`, and VACUUM. When making changes to monitoring or copy, prefer the wiki for retention behavior and the Configuration Guide for overall TAK Server config.
 
+## MediaMTX web editor (infra-TAK patches)
+
+- **New deployments:** Editor patches (endpoint, external-sources clear/lock/single-container, pill style for Mode/Status) are applied automatically when MediaMTX is deployed.
+- **Existing customers:** After upgrading infra-TAK, have them open the MediaMTX page and click **Patch web editor** once so the same patches (including External Sources pill styling) are applied. No file transfer or manual steps.
+
 ---
 
 *Add more sections (Authentik, Caddy, etc.) as needed.*
