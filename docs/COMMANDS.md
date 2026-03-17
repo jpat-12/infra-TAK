@@ -752,7 +752,7 @@ git checkout dev -- \
   scripts/guarddog/ \
   README.md \
   docs/COMMANDS.md \
-  docs/RELEASE-v0.2.3-alpha.md \
+  docs/RELEASE-v0.2.4-alpha.md \
   docs/GUARDDOG.md \
   docs/DISK-AND-LOGS.md \
   docs/MEDIAMTX-TAKPORTAL-ACCESS.md \
@@ -764,13 +764,13 @@ git checkout dev -- \
   docs/email-template-user-created-without-password.html \
   docs/TAK_Server_OpenAPI_v0.json
 git add -A && git status
-git commit -m "v0.2.3-alpha"
+git commit -m "v0.2.4-alpha"
 git push origin main
-git tag v0.2.3-alpha && git push origin v0.2.3-alpha
+git tag v0.2.4-alpha && git push origin v0.2.4-alpha
 git checkout dev
 ```
 
-**Note:** If a file doesn’t exist on dev (e.g. you removed `scripts/fix-mediamtx-stream-redirect.sh`), drop that line from the `git checkout dev --` list. For a new release, change the release doc (e.g. `docs/RELEASE-v0.2.2.md` → `docs/RELEASE-v0.2.3.md`), the commit message, and the tag; then run the tag push.
+**Note:** If a file doesn’t exist on dev (e.g. you removed `scripts/fix-mediamtx-stream-redirect.sh`), drop that line from the `git checkout dev --` list. For a new release, change the release doc (e.g. `docs/RELEASE-v0.2.4-alpha.md` → `docs/RELEASE-v0.2.5-alpha.md`), the commit message, and the tag; then run the tag push.
 
 ---
 
