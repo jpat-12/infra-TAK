@@ -79,6 +79,8 @@ In **two-server** mode, Guard Dog deploys a small **health agent** on Server One
 
 ## Alerts
 
+**Upgraded infra-TAK from before v0.2.7-alpha?** Open **Guard Dog** → **↻ Update Guard Dog** once so installed scripts match the new email path. See [RELEASE-v0.2.7-alpha.md](RELEASE-v0.2.7-alpha.md).
+
 Configure an alert email in the Guard Dog **Notifications** section. **All Guard Dog email alerts** (monitors, updates, cert expiry, etc.) are sent through the **Email Relay** you set up (e.g. Brevo SMTP): the watch scripts call the console, which sends via the same path as the "Send test email" button. No system `mail` command is used. Optional SMS (Twilio or Brevo) can be set for critical alerts.
 
 **Which server?** Every alert includes the server identity so you can tell which host sent it when monitoring multiple infra-TAK servers. In **Guard Dog → Notifications** you can set an optional **Server nickname** (e.g. Production, Staging). Alerts then show the nickname plus IP/FQDN (e.g. `Production (63.250.55.132)`). Without a nickname, the subject and body use your configured FQDN and IP from **Settings**, or the OS hostname if neither is set. Use **Save email & nickname** to apply the nickname without redeploying; re-deploy or **Update** after changing server IP or FQDN to refresh the identifier.
@@ -91,7 +93,7 @@ The **Updates** monitor (under Monitors) runs every **6 hours** and checks for n
 
 1. **Set the alert email** in **Guard Dog → Notifications** and click **Save email & nickname**.
 2. **Update Guard Dog** (or redeploy) so the updates script on disk gets the current email. The script is only written during deploy/update; changing the email alone does not rewrite it until you click **Update**.
-3. **Mail delivery** — Sending uses the system `mail` command, which requires an MTA (e.g. **Email Relay** configured in infra-TAK, or system Postfix). If Email Relay is not set up, update emails may not be delivered.
+3. **Mail delivery** — Alerts go through the console to **localhost:25** (Postfix → your **Email Relay**). Deploy **Email Relay** in infra-TAK and use **Send test email** on the Guard Dog page to verify.
 4. **Log** — The script logs to `/var/log/takguard/updates.log` when it runs: "No updates available", "Updates available but already notified", or "Updates email sent to …" (or "FAILED" if mail failed). Run `tail -f /var/log/takguard/updates.log` after the next 6h run to confirm.
 
 ## Where to do things (VACUUM, retention, etc.)

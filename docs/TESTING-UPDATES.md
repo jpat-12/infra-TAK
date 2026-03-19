@@ -37,7 +37,7 @@ sed -i 's/VERSION = "[^"]*"/VERSION = "0.0.1"/' app.py
 sudo systemctl restart takwerx-console
 ```
 
-Console now thinks it's `0.0.1`. It sees the current highest tag on GitHub (e.g. `v0.2.6-alpha`) as an update.
+Console now thinks it's `0.0.1`. It sees the current highest tag on GitHub (e.g. `v0.2.7-alpha`) as an update.
 
 **3. Open the console in your browser**
 
@@ -75,6 +75,18 @@ git checkout dev
 **6. If it breaks — fix before anyone sees it**
 
 No tag was pushed, so no customer saw anything. Fix the code on dev, repeat from step 1.
+
+### Optional: Guard Dog / updates email (v0.2.7-alpha+)
+
+After **Update Now** succeeds on the test VPS, click **↻ Update Guard Dog** once. To sanity-check the “updates available” email path without waiting for the timer:
+
+```bash
+sudo rm -f /var/lib/takguard/updates_notified
+sudo /opt/tak-guarddog/tak-updates-watch.sh
+tail -5 /var/log/takguard/updates.log
+```
+
+You should see `Updates email sent to …` or `No updates available`. Use **Guard Dog → Send test email** first if you have not confirmed Email Relay.
 
 ## Why this works
 
