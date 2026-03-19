@@ -79,7 +79,7 @@ In **two-server** mode, Guard Dog deploys a small **health agent** on Server One
 
 ## Alerts
 
-Configure an alert email in the Guard Dog **Notifications** section. Alerts are sent via your Email Relay (e.g. Brevo SMTP) when configured. Optional SMS (Twilio or Brevo) can be set for critical alerts.
+Configure an alert email in the Guard Dog **Notifications** section. **All Guard Dog email alerts** (monitors, updates, cert expiry, etc.) are sent through the **Email Relay** you set up (e.g. Brevo SMTP): the watch scripts call the console, which sends via the same path as the "Send test email" button. No system `mail` command is used. Optional SMS (Twilio or Brevo) can be set for critical alerts.
 
 **Which server?** Every alert includes the server identity so you can tell which host sent it when monitoring multiple infra-TAK servers. In **Guard Dog → Notifications** you can set an optional **Server nickname** (e.g. Production, Staging). Alerts then show the nickname plus IP/FQDN (e.g. `Production (63.250.55.132)`). Without a nickname, the subject and body use your configured FQDN and IP from **Settings**, or the OS hostname if neither is set. Use **Save email & nickname** to apply the nickname without redeploying; re-deploy or **Update** after changing server IP or FQDN to refresh the identifier.
 
