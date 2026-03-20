@@ -38,6 +38,12 @@ Canonical links used when working on infra-TAK. Keep these so tooling and docs a
 - **New deployments:** Editor patches (endpoint, external-sources clear/lock/single-container, pill style for Mode/Status) are applied automatically when MediaMTX is deployed.
 - **Existing customers:** After upgrading infra-TAK, have them open the MediaMTX page and click **Patch web editor** once so the same patches (including External Sources pill styling) are applied. No file transfer or manual steps.
 
+## Authentik
+
+- **Login / flow branding (Custom CSS vs Attributes, dark theme)** — [docs/AUTHENTIK-LOGIN-BRANDING.md](AUTHENTIK-LOGIN-BRANDING.md) — infra-TAK cheat sheet; official Authentik docs linked inside.
+- **Brands (official)** — https://docs.goauthentik.io/docs/brands/
+- **Custom CSS (official)** — https://docs.goauthentik.io/brands/custom-css/
+
 ---
 
-*Add more sections (Authentik, Caddy, etc.) as needed.*
+*Add more sections (Caddy, etc.) as needed.*

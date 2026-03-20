@@ -762,6 +762,7 @@ git checkout dev -- \
   docs/KU-BAND-SIMULATOR-SYNOPSIS.md \
   docs/HLS-FIX-CLIENT-VS-SERVER.md \
   docs/PULL-AND-RESTART.md \
+  docs/AUTHENTIK-LOGIN-BRANDING.md \
   docs/email-template-user-created-without-password.html \
   docs/TAK_Server_OpenAPI_v0.json
 git add -A && git status
