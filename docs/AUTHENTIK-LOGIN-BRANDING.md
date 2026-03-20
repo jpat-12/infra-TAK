@@ -17,6 +17,20 @@ There is **no full live preview** of the login page while you edit; save, then o
 
 ---
 
+## Starter TAK logo (infra-TAK ships a generic shield)
+
+infra-TAK bundles the **same official TAK shield SVG** the console uses (`tak.gov` brand asset) under **`static/authentik-branding/tak-gov-brand.svg`**.
+
+On **Authentik deploy** or **Update config & reconnect** (local) — and on **remote Authentik deploy** — the console copies it to:
+
+`~/authentik/media/public/infra-tak-defaults/tak-gov-brand.svg`
+
+(on the host that runs Authentik’s `docker compose`; same tree users see as `/root/authentik/...` when deployed as root).
+
+You still **assign** it in **System → Brands** (upload from your machine, or copy that path off the server and upload). Authentik does not auto-wire brand images from disk. Details: **[static/authentik-branding/README.md](../static/authentik-branding/README.md)**.
+
+---
+
 ## The usual trap: black background + grey unreadable text
 
 If you force a **black** background in **Custom CSS** but leave the flow executor on **`theme="light"`** (Authentik default for many brands), PatternFly still uses **dark/grey text** meant for a **light** background. You get **low contrast** (“Welcome …” and labels almost invisible).
