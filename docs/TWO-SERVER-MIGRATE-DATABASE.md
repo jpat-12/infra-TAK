@@ -18,18 +18,21 @@ If migration fails after TAK was stopped, the worker tries to **start `takserver
 
 - **Two-server** deployment with a valid current **Server One** in settings.
 - **New** host already prepared like a normal Server One (PostgreSQL + TAK DB packages / `takserver-database` as after **Deploy Server One**). Existing **`cot` on the new host will be replaced**.
-- **Same SSH key** as current Server One must work on the new host (key path is copied from current `server_one` config). Install the public key on the new VM if needed.
+- **SSH to the new host** — use the same flow as the Split Server Wizard: on the migrate card, **2. Setup SSH key** and **3. Copy key to new host** (same APIs as steps 2–3; `sshpass` required on the console). Or install the matching public key manually.
 - **Server Two (Core) IP** must be set in Settings so `pg_hba` can allow Core → new DB.
 
 ## UI
 
 - **New Server One host** — IP or DNS (required).
 - **SSH user (optional)** — overrides `server_one.ssh_user` for the new host only in saved settings.
+- **SSH port** — optional; used for copy-key and migration SSH.
+- **2 / 3 buttons** — same behavior as the two-server wizard for this console’s key and `ssh-copy-id` to the **new** host (not the current Server One).
 
 ## API (optional)
 
 - `POST /api/takserver/two-server/migrate-database/start`  
   JSON body: `new_host` (required), `new_ssh_user` (optional), `new_ssh_port` (optional, number).
+- `POST /api/takserver/two-server/install-ssh-key` — same as wizard; add **`install_host`** (and optional **`install_user`**, **`install_port`**) to copy the saved Server One public key to the **new** host instead of the configured Server One.
 - `GET /api/takserver/two-server/migrate-database/log?index=N`  
   Same shape as the update log: `entries`, `total`, `running`, `complete`, `error`.
 
