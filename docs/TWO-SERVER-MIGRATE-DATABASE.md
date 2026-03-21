@@ -4,8 +4,10 @@ Use the **TAK Server** page → **Migrate database to new Server One** (two-serv
 
 ## What it does
 
+**Start migration** does **not** install `takserver-database` or PostgreSQL on the new VM. It assumes the new host is already prepared (use **4. Deploy Server One (DB) on new host** on the migrate card, or an equivalent install). Then it:
+
 1. Stops **TAK Server** on Server Two (Core).
-2. **`pg_dump -Fc`** of database `cot` on the **current** Server One.
+2. **`pg_dump -Fc`** of database `cot` on the **current** Server One (saved settings still point there until migration finishes).
 3. Copies the dump to the console, then to the **new** Server One.
 4. On the new host: drops and recreates `cot`, **`pg_restore`**, verifies with `psql`.
 5. Runs **Server One setup** (listen / `pg_hba` / firewall) on the **new** host so Core can connect.
@@ -13,6 +15,10 @@ Use the **TAK Server** page → **Migrate database to new Server One** (two-serv
 7. Starts **TAK Server** again and attempts to deploy the health agent to the new Server One.
 
 If migration fails after TAK was stopped, the worker tries to **start `takserver` again** in `finally`.
+
+### Prepare the new host (before Start migration)
+
+On **Migrate database to new Server One**: steps **2–3** (SSH key), then **4. Deploy Server One (DB) on new host** — this calls the same deploy API with **`deploy_target_host`** so the database `.deb` is installed on the new IP **without** changing saved `server_one.host` (so migration still knows the old DB source).
 
 ## Prerequisites
 
