@@ -60,12 +60,12 @@ git pull origin dev
 sudo systemctl restart takwerx-console
 ```
 
-VPS is back on dev with the real VERSION. Now do the normal release flow:
+VPS is back on dev with the real VERSION. Now do the normal release flow — **the exact list of paths to copy from `dev` to `main` is in [COMMANDS.md](COMMANDS.md) → “Merge dev → main (selective — release only)”** (not the whole `dev` branch). Each release, update the `docs/RELEASE-v…` line, commit message, and tag in that block.
 
 ```
 git checkout dev && git pull origin dev
 git checkout main && git pull origin main
-git checkout dev -- <files>
+git checkout dev -- …   # see COMMANDS.md for the full path list
 git add -A && git commit -m "vX.Y.Z-alpha"
 git push origin main
 git tag vX.Y.Z-alpha && git push origin vX.Y.Z-alpha
