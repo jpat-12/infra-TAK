@@ -77,6 +77,8 @@ In **two-server** mode, Guard Dog deploys a small **health agent** on Server One
 
 **TCP + SSH** (the other Remote Database check) only verifies port 5432 and SSH; it does not run the agent. So TCP + SSH can be green while Health Agent is red if the agent isn’t installed or 8080 isn’t open.
 
+**After migrating the database to a new Server One:** The console monitors (**TCP + SSH**, **Health Agent**) use the **saved TAK deployment** `server_one.host` (same as **DB Auth**). On successful migration, infra-TAK also rewrites `/opt/tak-guarddog/guarddog.conf` and `tak-remotedb-*.sh` so timer-based alerts match the new host. If you moved DB before this behavior existed, click **Deploy health agent to Server One** once (it also runs that sync) or use **↻ Update Guard Dog** / redeploy Guard Dog to refresh scripts.
+
 ## Alerts
 
 **Upgraded infra-TAK from before v0.2.7-alpha?** Open **Guard Dog** → **↻ Update Guard Dog** once so installed scripts match the new email path. See [RELEASE-v0.2.7-alpha.md](RELEASE-v0.2.7-alpha.md).
