@@ -13,6 +13,7 @@ Use the **TAK Server** page → **Migrate database to new Server One** (two-serv
 5. Runs **Server One setup** (listen / `pg_hba` / firewall) on the **new** host so Core can connect.
 6. Updates **CoreConfig.xml** (JDBC host + password) and **saved deployment settings** (`server_one.host`, merged SSH fields).
 7. Starts **TAK Server** again and attempts to deploy the health agent to the new Server One.
+8. Syncs **Guard Dog** remote DB files (`guarddog.conf`, `tak-remotedb-*.sh`) to the **new** `server_one.host` and restarts the Core `tak-health` service so monitors match saved settings (same source as **DB Auth**).
 
 If migration fails after TAK was stopped, the worker tries to **start `takserver` again** in `finally`.
 
@@ -56,3 +57,14 @@ Older builds ran an SSH version check **before** the HTTP response returned; rev
 ## After success
 
 The page reloads; confirm **8443/8446** and clients. Keep the old Server One until you are satisfied; you can decommission it after DNS/firewall cutover if you use hostnames.
+
+### Guard Dog (Remote Database monitors)
+
+On **current infra-TAK**, you **do not** need to open Guard Dog and click **Update** just because you migrated — the migration job already refreshes `guarddog.conf` and the remote DB shell scripts for the new Server One IP.
+
+**Do use Guard Dog if:**
+
+- **Remote Database** still shows a wrong/stale host or red **TCP + SSH** / **Health Agent** after refresh — try **Deploy health agent to Server One** (also re-runs the sync), or **↻ Update Guard Dog** / full Guard Dog deploy to rewrite everything.
+- You are on an **older console** (before automatic sync) — then **Guard Dog → Update** (or redeploy) is the right fix.
+
+See [GUARDDOG.md](GUARDDOG.md) (section on migrating DB to a new Server One).
