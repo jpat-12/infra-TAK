@@ -23,7 +23,7 @@ Release Date: March 2026
 | Area | Change |
 |------|--------|
 | **Guard Dog** | `scripts/guarddog/tak-cert-watch.sh` — resolve LE JKS alias dynamically; require non-empty valid PEM before `DAYS_LEFT`; fallback alias `takserver` for older keystores. |
-| **Docs** | `GUARDDOG.md` — Certificate row notes v0.3.2+ alias fix and redeploy. `COMMANDS.md` — release example bumped to v0.3.2-alpha. |
+| **Docs** | `README.md` — **↻ Update Guard Dog** after every console upgrade (scripts on disk). `GUARDDOG.md` — Certificate row notes v0.3.2+ alias fix. `COMMANDS.md` — release example v0.3.2-alpha. |
 
 ---
 
