@@ -49,6 +49,10 @@ Keep the **same** `takserver-database` **Debian package version** on the new hos
 
 Returns **409** if a migration is already running.
 
+### “Failed to fetch” when clicking Start migration
+
+Older builds ran an SSH version check **before** the HTTP response returned; reverse proxies (Caddy/nginx) often cut that off as a timeout, which shows in the browser as **Failed to fetch**. Current code starts the worker immediately and runs the version check **inside** the migration log. Pull/restart infra-TAK and retry; if it still fails, check the browser Network tab for the real HTTP status or a proxy error page.
+
 ## After success
 
 The page reloads; confirm **8443/8446** and clients. Keep the old Server One until you are satisfied; you can decommission it after DNS/firewall cutover if you use hostnames.
