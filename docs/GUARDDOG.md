@@ -16,7 +16,7 @@ Guard Dog is TAK Server health monitoring and auto-recovery: nine monitors plus 
 
 | **OOM**       | 1 min  | Scans TAK Server logs for OutOfMemoryError | Auto-restart and alert (once until log clears) |
 | **Disk**      | 1 hr   | Root and TAK logs filesystem usage | Alert at 80% (warning) and 90% (critical) |
-| **Certificate**| Daily | Let's Encrypt / TAK Server cert expiry | Alert when **40 days or less** remaining until expiry |
+| **Certificate**| Daily | Let's Encrypt / TAK Server cert expiry (`takserver-le.jks`) | Alert when **40 days or less** remaining until expiry. **v0.3.2-alpha+:** the watch script reads the **actual keystore alias** (TAK hostname), not a hardcoded `takserver` name — redeploy Guard Dog after upgrading so `/opt/tak-guarddog/tak-cert-watch.sh` updates. |
 | **Root CA / Intermediate CA** | Escalating | Monitors Root CA and Intermediate CA certificate expiry | First alert at 90 days, then 75, 60, 45, 30, then daily until expiry. Email includes CA name, days remaining, and exact expiry date. |
 
 ## Avoiding restart loops and boot races
