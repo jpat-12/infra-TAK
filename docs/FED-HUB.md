@@ -13,7 +13,7 @@ Install and configure Federation Hub using the **TAK.gov** guide (Ubuntu .deb pa
 1. Open **Marketplace → Federation Hub** (or `/federation-hub`).
 2. Set **remote host**, SSH user/port, generate/install SSH key (same pattern as MediaMTX remote), **Save target**.
 3. Upload **`takserver-fed-hub`** `.deb` from TAK.gov (drag/drop or file picker). The console validates the package with `dpkg-deb` — run the console on **Linux** for uploads.
-4. Click **Deploy to remote host** — apt lock cleanup, SCP to `/tmp/`, `apt-get install`, `systemctl enable/restart federation-hub`, then registration in settings when the service is **active**.
+4. Click **Deploy to remote host** — apt lock cleanup, SCP to `/tmp/`, ensure `/opt/tak/federation-hub/policies` exists (workaround for some package pre-install scripts that `cp policies/*`), `apt-get install`, `systemctl enable/restart federation-hub`, then registration in settings when the service is **active**.
 5. Use **Restart / Start / Stop** for remote `systemctl` (requires passwordless `sudo` for that user, like other remote modules).
 
 ## HTTPS at `fedhub.<FQDN>` (Caddy on the infra-TAK console)
