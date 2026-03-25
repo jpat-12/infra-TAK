@@ -35,7 +35,18 @@ Federation Hub exposes a **web UI** on the **remote** Ubuntu host (port **9100**
 
 ### Hub login (client certificate)
 
-infra-TAK auto-generates a **`webadmin-fed.p12`** client certificate during deploy and registers it with the hub via `federation-hub-manager.jar`. Download it from **`/root/webadmin-fed.p12`** on the target host, import it into your browser, then open **`https://<host>:9100`**. The certificate password matches the TAK cert password (default **`atakatak`**, or whatever you set in the console).
+Two options:
+
+**Option 1 — Client certificate (default, works out of the box):**
+infra-TAK auto-generates **`webadmin-fed.p12`** during deploy and registers it via `federation-hub-manager.jar`. Download it from **`/root/webadmin-fed.p12`** on the target, import into your browser, then open **`https://<host>:9100`**. Password = TAK cert password (default **`atakatak`**).
+
+**Option 2 — Authentik SSO (OAuth2/OIDC):**
+If **Authentik** is deployed, click **"Enable Authentik login"** on the Federation Hub page. This:
+1. Creates an **OAuth2/OIDC application** in Authentik (`Federation Hub` provider + app).
+2. Patches **`federation-hub-ui.yml`** on the remote (`allowOauth: true`, Authentik endpoints, client ID/secret).
+3. Restarts `federation-hub` and opens port **8446** (OAuth port).
+
+Users in the **`authentik Admins`** group can then log in at `https://<host>:9100` with their Authentik username/password. Client cert login continues to work alongside OAuth.
 
 ## Updating (after install)
 
@@ -58,6 +69,7 @@ Same idea as **Update TAK Server**: open **Update Federation Hub** on `/federati
 | 9101 | Federation V1 |
 | 9102 | Federation V2 (default) |
 | 9103 | Token Federation (optional) |
+| 8446 | OAuth/OIDC login (when Authentik SSO enabled) |
 
 ## Future work
 
