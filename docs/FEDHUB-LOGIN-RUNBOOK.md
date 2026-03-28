@@ -61,6 +61,32 @@ Typical required keys when using Authentik as OIDC:
 - `web_ui_port` in console settings must match a port FedHub is **actually listening on** (`ss -tlnp` on FedHub host).
 - Changing upstream without confirming listeners causes **502**.
 
+### 502 Bad Gateway (Fed Hub) — from prior debugging
+
+A **502** means Caddy got the browser request but **could not get a good response from the Fed Hub upstream** (or, rarely, the `forward_auth` subrequest failed in a way that surfaces as 502). It is **not** “Authentik is wrong” by itself.
+
+**On console VPS (where Caddy runs):**
+
+```bash
+grep -A 25 "fedhub." /etc/caddy/Caddyfile
+curl -sS -o /dev/null -w '%{http_code}\n' --connect-timeout 5 http://FEDHUB_IP:8080/
+journalctl -u caddy --no-pager -n 40
+```
+
+Replace `FEDHUB_IP` with the IP in the `reverse_proxy` line. You want `200` or redirect, not `000`.
+
+**On Fed Hub VPS:**
+
+```bash
+sudo systemctl restart federation-hub
+sleep 70
+ss -tlnp | grep -E ':(8080|9100|8446)\b'
+```
+
+With **`allowOauth: true`**, **8080** should listen for the HTTP UI Caddy normally uses. If only **9100** is up, either wait for full startup or set console **Hub web UI port** to **9100** and ensure Caddy uses **`https://` + `tls_insecure_skip_verify`** for that upstream (9100 is TLS).
+
+**After changing `settings.json` / Fed Hub port in UI:** regenerate Caddyfile and reload Caddy (Caddy page **Restart** in the console, or `generate_caddyfile(load_settings())` + `systemctl reload caddy`).
+
 ## 6) FedHub UI `:0` / `ERR_UNSAFE_PORT` (browser)
 
 If the SPA calls `https://fedhub.<fqdn>:0/api/...`, set localStorage once on `https://fedhub.<fqdn>/login` (DevTools console), then reload:
