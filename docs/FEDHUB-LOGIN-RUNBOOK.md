@@ -4,8 +4,10 @@ This documents what actually mattered when FedHub “worked” vs when it looked
 
 ## 0) Architecture (current)
 
-- **Caddy** terminates TLS at `https://fedhub.<fqdn>` and **reverse_proxies** to the Fed Hub host (default HTTP **8080** when OAuth is on).
-- **Auth** is **one path**: Fed Hub’s built-in OIDC → **Authentik** (OAuth2 provider slug usually `fedhub`). Caddy does **not** use `forward_auth` on the Fed Hub vhost (that used to create a second Authentik app and fight OAuth cookies).
+- **Caddy** terminates TLS at `https://fedhub.<fqdn>`, runs **Authentik `forward_auth`** when Authentik is installed, then **reverse_proxies** to the Fed Hub host (default HTTP **8080** when OAuth is on).
+- **Two Authentik pieces** (both intentional):
+  - **Proxy provider + app** (`federation-hub`) — Caddy `forward_auth`. After you log in via `tak.<fqdn>` and open Fed Hub from **Authentik → My applications**, your session is already valid at the edge — **often no Fed Hub “Keycloak” screen**.
+  - **OAuth2 provider + app** (`fedhub`) — Fed Hub’s built-in OIDC for direct visits / API callbacks (`/api/oauth/login/redirect`).
 
 ## 1) What you are looking at
 
@@ -90,9 +92,10 @@ Switch only after OIDC redirect and session are proven with the test mode.
 
 ## 8) Authentik apps
 
-**Current:** only the **OAuth2/OIDC** provider + application for Fed Hub (slug `fedhub`, name “Federation Hub”) is required for UI login.
+- **Proxy** app (slug `federation-hub`) — used by Caddy `forward_auth` on `fedhub.<fqdn>`.
+- **OAuth2** app (slug `fedhub`) — used by Fed Hub’s OIDC client and redirect URIs.
 
-If you still see an old **Proxy** app “Federation Hub” / slug `federation-hub` from earlier installs, it is **unused** by Caddy now — you may remove it in Authentik to avoid confusion (optional).
+Both tiles named “Federation Hub” can appear; they serve different layers. Do not delete one without knowing which path you rely on.
 
 ## 9) Reliable user habit (reduces double prompts)
 
