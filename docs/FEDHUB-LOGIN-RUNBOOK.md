@@ -89,7 +89,11 @@ With **`allowOauth: true`**, **8080** should listen for the HTTP UI Caddy normal
 
 ## 6) FedHub UI `:0` / `ERR_UNSAFE_PORT` (browser)
 
-If the SPA calls `https://fedhub.<fqdn>:0/api/...`, set localStorage once on `https://fedhub.<fqdn>/login` (DevTools console), then reload:
+**Symptoms (DevTools console):** `net::ERR_UNSAFE_PORT` on URLs like `https://fedhub.<fqdn>:0/api/federations`, `:0/api/saveFederationPolicy`, `:0/api/getKnownCaGroups`, `:0/api/addNewGroupCa`; `Failed getting workflow names`; `setActiveEditingPolicy undefined`; generic “error uploading” for CA. **This is not** PDF vs web guide order — the UI never reaches the API until the port is fixed.
+
+**CORS noise:** You may also see XHR to `https://fedhub.../api/getBrokerMetrics` **redirect** to `https://tak.../application/o/authorize/...` and then “blocked by CORS” — that is often a **secondary** effect when the app is half-broken or unauthenticated for API calls; fix `:0` first, then re-test after a normal Authentik session on `fedhub.<fqdn>`.
+
+If the SPA calls `https://fedhub.<fqdn>:0/api/...`, set localStorage once on `https://fedhub.<fqdn>/login` (or any `fedhub.<fqdn>` page — DevTools console), then reload:
 
 ```js
 localStorage.clear();
