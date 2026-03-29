@@ -768,13 +768,28 @@ git checkout dev -- \
   docs/email-template-user-created-without-password.html \
   docs/TAK_Server_OpenAPI_v0.json
 git add -A && git status
+python3 - <<'PY'
+import re, sys
+tag = "v0.3.5-alpha"  # change each release
+want = tag.lstrip("v")
+app = open("app.py", encoding="utf-8").read()
+m = re.search(r'^VERSION\s*=\s*"([^"]+)"', app, re.M)
+if not m:
+    print("ERROR: VERSION not found in app.py")
+    sys.exit(1)
+got = m.group(1)
+if got != want:
+    print(f"ERROR: app.py VERSION is {got}, expected {want} for tag {tag}")
+    sys.exit(1)
+print(f"OK: app.py VERSION matches tag ({tag})")
+PY
 git commit -m "v0.3.5-alpha"
 git push origin main
 git tag v0.3.5-alpha && git push origin v0.3.5-alpha
 git checkout dev
 ```
 
-**Note:** If a file doesn’t exist on dev (e.g. you removed `scripts/fix-mediamtx-stream-redirect.sh`), drop that line from the `git checkout dev --` list. For a new release, change the release doc (e.g. `docs/RELEASE-v0.3.2-alpha.md` → next release), the commit message, and the tag; then run the tag push.
+**Note:** If a file doesn’t exist on dev (e.g. you removed `scripts/fix-mediamtx-stream-redirect.sh`), drop that line from the `git checkout dev --` list. For a new release, change the release doc (e.g. `docs/RELEASE-v0.3.2-alpha.md` → next release), the commit message, and the tag; then run the tag push. Keep the Python check in the block and update the `tag = "..."` line each release — it prevents update-loop bugs caused by VERSION/tag mismatch.
 
 ---
 

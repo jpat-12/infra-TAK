@@ -112,3 +112,5 @@ You should see `Updates email sent to …` or `No updates available`. Use **Guar
 | Delete a tag | Banner disappears on next cache refresh (~10 min) |
 
 **Rule: never push a tag until you have tested Update Now on your VPS.**
+
+**Release safety check (required):** before `git tag`, verify `app.py` `VERSION` matches the tag version exactly (example: tag `v0.3.5-alpha` requires `VERSION = "0.3.5-alpha"`). See `docs/COMMANDS.md` release block for the copy-paste check command.
