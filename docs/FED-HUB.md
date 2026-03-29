@@ -20,9 +20,11 @@ Install and configure Federation Hub using the **TAK.gov** guide (Ubuntu .deb pa
    4. **Patch config** — `federation-hub-ui.yml` and `federation-hub-broker.yml` get the actual truststore/keystore names (from intermediate CA and hostname).
    5. **Start** — `chown -R tak:tak`, `systemctl enable/restart federation-hub`, wait for `"Started FederationHubUIServer"` in UI log.
    6. **Register admin cert** — `federation-hub-manager.jar` + copy `webadmin-fed.p12` to `/root/`.
-   7. **Firewall** — UFW allow 9100–9103.
+   7. **Firewall** — UFW allow `22/tcp`, `8080/tcp`, and `9100-9103/tcp` on the target host.
    8. Console registration updated.
 5. Use **Restart / Start / Stop** for remote `systemctl` (requires passwordless `sudo` for that user, like other remote modules).
+
+> **Group mapping tip (TAK federation paths):** LDAP pickers may show DN-style names like `cn=tak_CA-COR ADSB2`, but federation filters/mappings often match on the short label (`CA-COR ADSB2`). If data is connected but counters stay `0/0`, try using bare group names.
 
 ## HTTPS at `fedhub.<FQDN>` (Caddy on the infra-TAK console)
 
