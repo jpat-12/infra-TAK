@@ -725,7 +725,7 @@ sudo systemctl restart takwerx-console
 
 When you want to release a version but **not** put internal/reference files on `main` (no HANDOFF, PROMPT, testing notes, retention PDFs, etc.), merge only the files users need to run, update, or start fresh. Run from repo root (e.g. `~/infra-TAK`).
 
-**Included on main:** app, overlay, start/scripts, static, modules, Guard Dog scripts, user-facing docs (README, COMMANDS, GUARDDOG, DISK-AND-LOGS, MEDIAMTX-TAKPORTAL-ACCESS, WORKFLOW-8446-WEBADMIN, REFERENCES, FED-HUB, FEDHUB-LOGIN-RUNBOOK, email template, OpenAPI spec), **docs/TESTING-UPDATES.md** (maintainer pre-release protocol), and **only the latest** release doc (e.g. `docs/RELEASE-v0.3.4-alpha.md` — change each release). Past release notes are on the GitHub Releases tab.
+**Included on main:** app, overlay, start/scripts, static, modules, Guard Dog scripts, user-facing docs (README, COMMANDS, GUARDDOG, DISK-AND-LOGS, MEDIAMTX-TAKPORTAL-ACCESS, WORKFLOW-8446-WEBADMIN, REFERENCES, FED-HUB, FEDHUB-LOGIN-RUNBOOK, email template, OpenAPI spec), **docs/TESTING-UPDATES.md** (maintainer pre-release protocol), and **only the latest** release doc (e.g. `docs/RELEASE-v0.3.5-alpha.md` — change each release). Past release notes are on the GitHub Releases tab.
 
 **Excluded from main:** older `docs/RELEASE-*.md` (only the current release is copied), `docs/HANDOFF-LDAP-AUTHENTIK.md`, `docs/PROMPT-update-handoff.txt`, `docs/TAK-Data-Retention-notes.md`, `docs/TAK_Server_Configuration_Guide.pdf`, `docs/TAK-Data-Retention-Tool.pdf`, `TESTING.md`, `scripts/ldap-diagnose-and-fix.sh` (and any other internal-only files you add to dev).
 
@@ -752,7 +752,7 @@ git checkout dev -- \
   scripts/guarddog/ \
   README.md \
   docs/COMMANDS.md \
-  docs/RELEASE-v0.3.4-alpha.md \
+  docs/RELEASE-v0.3.5-alpha.md \
   docs/TESTING-UPDATES.md \
   docs/GUARDDOG.md \
   docs/DISK-AND-LOGS.md \
@@ -768,9 +768,9 @@ git checkout dev -- \
   docs/email-template-user-created-without-password.html \
   docs/TAK_Server_OpenAPI_v0.json
 git add -A && git status
-git commit -m "v0.3.4-alpha"
+git commit -m "v0.3.5-alpha"
 git push origin main
-git tag v0.3.4-alpha && git push origin v0.3.4-alpha
+git tag v0.3.5-alpha && git push origin v0.3.5-alpha
 git checkout dev
 ```
 
