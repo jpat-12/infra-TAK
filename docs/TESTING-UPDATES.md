@@ -20,11 +20,12 @@ Tags drive everything. Pushing to `dev` or `main` does **not** trigger customer 
 
 ### Steps
 
-**1. Pull dev onto your test VPS**
+**1. Sync test VPS to dev (exactly)**
 
 ```bash
 cd $(grep -oP 'WorkingDirectory=\K.*' /etc/systemd/system/takwerx-console.service)
-git pull origin dev
+git fetch origin dev --tags
+git checkout -B dev origin/dev
 sudo systemctl restart takwerx-console
 ```
 
@@ -56,15 +57,17 @@ This runs the actual updater code path — the same thing customers will run. Wa
 ```bash
 cd $(grep -oP 'WorkingDirectory=\K.*' /etc/systemd/system/takwerx-console.service)
 git checkout -- app.py
-git pull origin dev
+git fetch origin dev --tags
+git checkout -B dev origin/dev
 sudo systemctl restart takwerx-console
 ```
 
 VPS is back on dev with the real VERSION. Now do the normal release flow — **the exact list of paths to copy from `dev` to `main` is in [COMMANDS.md](COMMANDS.md) → “Merge dev → main (selective — release only)”** (not the whole `dev` branch). Each release, update the `docs/RELEASE-v…` line, commit message, and tag in that block.
 
 ```
-git checkout dev && git pull origin dev
-git checkout main && git pull origin main
+git fetch origin --tags
+git checkout -B dev origin/dev
+git checkout -B main origin/main
 git checkout dev -- …   # see COMMANDS.md for the full path list
 git add -A && git commit -m "vX.Y.Z-alpha"
 git push origin main
