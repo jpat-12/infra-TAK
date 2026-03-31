@@ -725,20 +725,19 @@ sudo systemctl restart takwerx-console
 
 When you want to release a version but **not** put internal/reference files on `main` (no HANDOFF, PROMPT, testing notes, retention PDFs, etc.), merge only the files users need to run, update, or start fresh. Run from repo root (e.g. `~/infra-TAK`).
 
-**Included on main:** app, overlay, start/scripts, static, modules, Guard Dog scripts, user-facing docs (README, COMMANDS, GUARDDOG, DISK-AND-LOGS, MEDIAMTX-TAKPORTAL-ACCESS, WORKFLOW-8446-WEBADMIN, REFERENCES, FED-HUB, FEDHUB-LOGIN-RUNBOOK, email template, OpenAPI spec), **docs/TESTING-UPDATES.md** (maintainer pre-release protocol), and **only the latest** release doc (e.g. `docs/RELEASE-v0.3.6-alpha.md` — change each release). Past release notes are on the GitHub Releases tab.
+**Included on main:** app, overlay, start/scripts, static, modules, Guard Dog scripts, user-facing docs (README, COMMANDS, GUARDDOG, DISK-AND-LOGS, MEDIAMTX-TAKPORTAL-ACCESS, WORKFLOW-8446-WEBADMIN, REFERENCES, FED-HUB, FEDHUB-LOGIN-RUNBOOK, email template, OpenAPI spec), **docs/TESTING-UPDATES.md** (maintainer pre-release protocol), and **only the latest** release doc (e.g. `docs/RELEASE-v0.3.7-alpha.md` — change each release). Past release notes are on the GitHub Releases tab.
 
 **Excluded from main:** older `docs/RELEASE-*.md` (only the current release is copied), `docs/HANDOFF-LDAP-AUTHENTIK.md`, `docs/PROMPT-update-handoff.txt`, `docs/TAK-Data-Retention-notes.md`, `docs/TAK_Server_Configuration_Guide.pdf`, `docs/TAK-Data-Retention-Tool.pdf`, `TESTING.md`, `scripts/ldap-diagnose-and-fix.sh` (and any other internal-only files you add to dev).
 
-**Order:** Update `dev` first so the files you copy to `main` are current. Then switch to `main`, pull, copy the listed paths from (local) `dev`, commit, push, and switch back to `dev`.
+**Order:** Sync local `dev` and `main` exactly to `origin` first (avoids divergent-branch pull errors), then copy the listed paths from `dev`, commit, push, and switch back to `dev`.
 
 ```bash
-# 1) Ensure dev has the latest (so the copy to main is current)
-git checkout dev
-git pull origin dev
+# 1) Sync local branches to remote (clean deterministic base)
+git fetch origin --tags
+git checkout -B dev origin/dev
 
-# 2) Switch to main, update it, then copy selected files from dev
-git checkout main
-git pull origin main
+# 2) Switch to main, sync it, then copy selected files from dev
+git checkout -B main origin/main
 git checkout dev -- \
   app.py \
   mediamtx_ldap_overlay.py \
@@ -752,7 +751,7 @@ git checkout dev -- \
   scripts/guarddog/ \
   README.md \
   docs/COMMANDS.md \
-  docs/RELEASE-v0.3.6-alpha.md \
+  docs/RELEASE-v0.3.7-alpha.md \
   docs/TESTING-UPDATES.md \
   docs/GUARDDOG.md \
   docs/DISK-AND-LOGS.md \
@@ -770,7 +769,7 @@ git checkout dev -- \
 git add -A && git status
 python3 - <<'PY'
 import re, sys
-tag = "v0.3.6-alpha"  # change each release
+tag = "v0.3.7-alpha"  # change each release
 want = tag.lstrip("v")
 app = open("app.py", encoding="utf-8").read()
 m = re.search(r'^VERSION\s*=\s*"([^"]+)"', app, re.M)
@@ -783,9 +782,9 @@ if got != want:
     sys.exit(1)
 print(f"OK: app.py VERSION matches tag ({tag})")
 PY
-git commit -m "v0.3.6-alpha"
+git commit -m "v0.3.7-alpha"
 git push origin main
-git tag v0.3.6-alpha && git push origin v0.3.6-alpha
+git tag v0.3.7-alpha && git push origin v0.3.7-alpha
 git checkout dev
 ```
 
