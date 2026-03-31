@@ -21,6 +21,7 @@ A unified web console for deploying and managing TAK ecosystem infrastructure:
 - **Node-RED** — Flow-based automation engine, protected behind Authentik forward auth
 - **Email Relay** — Outbound email for notifications and alerts
 - **Guard Dog** — TAK Server health monitoring and auto-recovery (port 8089, processes, OOM, PostgreSQL, CoT DB size, disk, certificates; optional monitors for Authentik, Node-RED, MediaMTX, CloudTAK)
+- **TAK-Esri** — Bidirectional bridge between Survey123, TAK Server, and ArcGIS Online/Enterprise. Polls a Survey123 feature layer, converts to CoT XML (served via Apache for TAK clients to pull) and KML, and pushes TAK CoT logs back to an ArcGIS feature layer every 60 seconds. Full pipeline managed from the browser including Miniconda + ArcGIS SDK install, credential testing, and feature layer creation.
 
 No more SSH. No more editing XML by hand. No more running scripts and hoping.
 
@@ -97,8 +98,10 @@ Deploy services in this order — each step auto-configures the next:
          ↓
 6. TAK Portal        User/cert management portal
          ↓
-7. Anything else     CloudTAK, Node-RED, MediaMTX — any order
+7. Anything else     CloudTAK, Node-RED, MediaMTX, TAK-Esri — any order
 ```
+
+**TAK-Esri** is fully standalone — it does not depend on any other module and can be deployed at any point. It uses Apache (installed automatically) to serve CoT and KML files, not Caddy.
 
 **Connect LDAP** runs after TAK Server deploy and wires LDAP auth to CoreConfig. 8446 webadmin login and QR enrollment work immediately after. **For MediaMTX-only (or standalone Authentik):** Deploy Authentik without TAK Server — it skips CoreConfig and webadmin; add TAK Server later and use Connect LDAP.
 
@@ -139,10 +142,41 @@ After deployment, create users in TAK Portal — they flow through Authentik →
 ## Architecture
 
 ```
-start.sh                    ← One CLI command to launch everything
-├── app.py                  ← Gunicorn web application (HTTPS on :5001)
-├── uploads/                ← Uploaded .deb packages
-└── .config/                ← Auth + settings (gitignored)
+start.sh                          ← One CLI command to launch everything
+├── app.py                        ← Gunicorn web application (HTTPS on :5001)
+├── modules/                      ← Bundled module assets
+│   └── tak_esri/
+│       ├── python/               ← Pipeline scripts deployed to /opt/TAK-Esri/
+│       │   ├── csv-cot.py        ← Survey123 CSV → CoT XML
+│       │   ├── csv-kml.py        ← Survey123 CSV → KML
+│       │   ├── cot-csv.py        ← TAK CoT XML → CSV
+│       │   └── copy-cot-intake.py  ← Archive CoT logs as .zip, purge >2 days
+│       └── service-files/        ← systemd units deployed to /etc/systemd/system/
+│           ├── csv-download.service
+│           ├── csv-cot.service
+│           ├── csv-kml.service
+│           ├── cot-csv.service
+│           └── arcgis-append.service  ← Runs append.py inside conda arcgis_env
+├── uploads/                      ← Uploaded .deb packages
+└── .config/                      ← Auth + settings (gitignored)
+```
+
+**TAK-Esri runtime paths (on the server after deploy):**
+```
+/opt/TAK-Esri/                ← Working directory
+├── csv-download.py           ← Generated from saved Survey123 URL
+├── csv-cot.py / csv-kml.py / cot-csv.py / copy-cot-intake.py
+└── ArcGIS/
+    ├── sign-in.py            ← Generated from saved ArcGIS credentials
+    ├── push.py               ← Creates feature layer (run once)
+    └── append.py             ← 60 s overwrite loop (runs via arcgis-append.service)
+
+/var/www/html/                ← Apache web root
+├── survey-cot.txt            ← CoT XML (TAK clients pull from here)
+├── survey123.kml             ← KML for Google Earth / QGIS
+├── cot-logged.txt            ← Written by TAK Server
+├── cot-logged.csv            ← Parsed by cot-csv.py, pushed to ArcGIS
+└── cot-messages-logged/      ← Timestamped .zip archives (purged after 2 days)
 ```
 
 ## Ports
@@ -156,6 +190,7 @@ start.sh                    ← One CLI command to launch everything
 | Authentik | 9090 | Identity provider |
 | LDAP | 389 | LDAP auth for TAK Server |
 | TAK Portal | 3000 | User management portal |
+| Apache (TAK-Esri) | 80 | Serves survey-cot.txt and survey123.kml for TAK clients |
 
 ## Access Modes
 
@@ -188,6 +223,24 @@ start.sh                    ← One CLI command to launch everything
 ---
 
 ## Changelog
+
+### v0.3.3-alpha — 2026-03-31
+
+**TAK-Esri Integration module**
+- New **TAK-Esri** module — full bidirectional bridge between Survey123, TAK Server, and ArcGIS Online/Enterprise, managed entirely from the web console.
+- **Pipeline services** (`csv-download`, `csv-cot`, `csv-kml`, `cot-csv`) deployed as systemd units to `/opt/TAK-Esri/`. All scripts bundled at `modules/tak_esri/python/`.
+- **Deploy tab** — one-click install: installs `python3-geopandas`, `apache2`, deploys scripts, generates `csv-download.py` from the saved Survey123 URL, and enables all four services. Live streaming deploy log.
+- **ArcGIS Setup tab** — guided 4-step wizard fully automated from the browser:
+  - Step 1: Install Miniconda to `/root/miniconda/`, create `arcgis_env` (Python 3.9), install ArcGIS SDK via `conda install -c esri arcgis` (pip fallback). Live streaming log.
+  - Step 2: Test ArcGIS credentials — runs `sign-in.py` inside `arcgis_env`, prints username on success.
+  - Step 3: Create ArcGIS feature layer — runs `push.py`, captures the layer ID from stdout, auto-saves to config, and pre-fills the Feature Layer ID field. No copy-paste required.
+  - Step 4: Start/stop/restart `arcgis-append.service` — systemd unit running `append.py` inside `conda run`, overwriting the feature layer every 60 seconds.
+- **Services tab** — per-service status badges and start/stop/restart controls for all four pipeline services.
+- **Config tab** — Survey123 Feature Layer URL and ArcGIS credentials (enterprise URL, username, password, feature layer ID) saved to `settings.json`.
+- **CoT archive** (`copy-cot-intake.py`) — archives `cot-logged.txt` as a compressed `.zip` (ZIP_DEFLATED), organised by UTC date folder. Automatically purges archive folders older than two days.
+- **Uninstall** — password-gated; stops and removes all services and deletes `/opt/TAK-Esri/`. Apache and `/var/www/html/` output files are left intact.
+
+---
 
 ### v0.2.9-alpha — 2026-03-15
 
