@@ -19,16 +19,7 @@ WorkingDirectory=/root/infra-TAK/infra-TAK
 
 ```bash
 cd $(grep -oP 'WorkingDirectory=\K.*' /etc/systemd/system/takwerx-console.service)
-git fetch origin dev --tags
-git checkout -B dev origin/dev
-sudo systemctl restart takwerx-console
-```
-
-## Dev branch (explicit flow)
-
-```bash
-cd $(grep -oP 'WorkingDirectory=\K.*' /etc/systemd/system/takwerx-console.service)
-git fetch origin dev --tags
+git fetch origin --tags
 git checkout -B dev origin/dev
 sudo systemctl restart takwerx-console
 ```
@@ -37,7 +28,7 @@ sudo systemctl restart takwerx-console
 
 ```bash
 cd $(grep -oP 'WorkingDirectory=\K.*' /etc/systemd/system/takwerx-console.service)
-git fetch origin main --tags
+git fetch origin --tags
 git checkout -B main origin/main
 sudo systemctl restart takwerx-console
 ```
