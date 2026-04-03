@@ -12,6 +12,7 @@ Release Date: April 2026
 - **REINDEX button**: New "Rebuild Indexes" operation improves query performance. Safe while TAK Server is running.
 - **Remote CoT DB size monitoring**: Two-server setups now get CoT database size alerts (was silently skipped before). Alert at 25GB warning / 40GB critical with email.
 - **Authentik PostgreSQL hardening**: New deployments get `max_connections=300`. "Update config" now applies `ALTER SYSTEM SET` tuning (idle_session_timeout, tcp_keepalives) to prevent connection exhaustion.
+- **Flat-file auth toggle**: New card on the TAK Server page lets you enable/disable the `UserAuthenticationFile.xml` auth provider in CoreConfig with one click. Restarts TAK Server automatically. Useful for LDAP-only setups that don't need local password fallback.
 - **TAK Portal Authentik link fix**: The Authentik button on the TAK Portal page now goes to the correct URL.
 
 ---
@@ -37,6 +38,7 @@ Release Date: April 2026
 | **Database UI** | Both TAK Server and Guard Dog pages show stat grid (size, rows, dead tuples) + three maintenance buttons with accurate descriptions. |
 | **Authentik PG tuning** | `POSTGRES_MAX_CONNECTIONS` bumped to 300. "Update config" applies ALTER SYSTEM SET for idle_session_timeout, tcp_keepalives. |
 | **Guard Dog Update** | Update button now installs new systemd timers (auto-vacuum, cotdb) — previously only copied scripts. |
+| **Flat-file auth toggle** | New UI card + API (`GET/POST /api/takserver/flatfile-auth`) to enable/disable `UserAuthenticationFile.xml` in CoreConfig `<auth>` block. Auto-restarts TAK Server. |
 | **TAK Portal link fix** | `authentik_base_url` and `takserver_base_url` now passed to TAK Portal template. |
 
 ---
