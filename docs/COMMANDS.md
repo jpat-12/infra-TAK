@@ -380,7 +380,7 @@ If (4) shows nothing when you trigger a reset, Authentik isn't reaching Postfix.
 ## Pull dev branch only
 
 ```bash
-cd ~/infra-TAK && git fetch origin dev && git checkout dev && git pull origin dev
+cd ~/infra-TAK && git remote set-branches origin '*' && git fetch origin --tags && git checkout -B dev origin/dev
 ```
 
 *(If your repo lives elsewhere, use that path instead of `~/infra-TAK`, e.g. `~/tak-infra`.)*
@@ -710,7 +710,7 @@ cd /path/to/infra-TAK && chmod +x pull-dev-and-restart.sh && ./pull-dev-and-rest
 **Or run the steps manually:**
 
 ```bash
-cd ~/infra-TAK && git fetch origin dev && git checkout dev && git pull origin dev
+cd ~/infra-TAK && git remote set-branches origin '*' && git fetch origin --tags && git checkout -B dev origin/dev
 ```
 
 ```bash
