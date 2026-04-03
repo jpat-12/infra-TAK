@@ -15,25 +15,33 @@ Use whatever path that returns. Example output:
 WorkingDirectory=/root/infra-TAK/infra-TAK
 ```
 
-## Simple dev pull (separate commands)
+## Pull latest dev and restart
 
 ```bash
 cd $(grep -oP 'WorkingDirectory=\K.*' /etc/systemd/system/takwerx-console.service)
-git remote set-branches origin '*'
 git fetch origin --tags
 git checkout -B dev origin/dev
 sudo systemctl restart takwerx-console
 ```
 
-## Main branch (stable)
+## Pull latest main (stable) and restart
 
 ```bash
 cd $(grep -oP 'WorkingDirectory=\K.*' /etc/systemd/system/takwerx-console.service)
-git remote set-branches origin '*'
 git fetch origin --tags
 git checkout -B main origin/main
 sudo systemctl restart takwerx-console
 ```
+
+## Shallow clone fix (one-time)
+
+If `git fetch` fails with `'origin/dev' is not a commit`, run this once:
+
+```bash
+git remote set-branches origin '*'
+```
+
+Then retry the pull commands above. This only happens on VPS installs that used `--depth 1`.
 
 ## Upgrading to v0.2.0+
 
