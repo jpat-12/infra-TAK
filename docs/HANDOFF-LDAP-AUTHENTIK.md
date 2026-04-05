@@ -919,6 +919,21 @@ The `ldap-authentication-flow` is defined in `tak-ldap-setup.yaml` blueprint wit
 - **Why**: With `state: created`, Authentik only applies the user model once. But `state: present` or blueprint reconciliation could overwrite the API-set password with a hashed version of the env var, causing LDAP bind failures. The password is set exclusively via the Authentik API (`/api/v3/core/users/{pk}/set_password/`) after user creation.
 - **CRITICAL LESSON**: Never set password in blueprints for service accounts that need to authenticate via LDAP. The password must be set via API to ensure proper hashing.
 
+### 4.15 Authentik-first deploy ordering (CRITICAL)
+
+- **Decision**: Setting `adm_ldapservice` password via API must run regardless of TAK Server install state.
+- **Root cause found on test10**: In local Authentik deploy flow, service-account password setup was accidentally gated under `if webadmin_pass:`. `webadmin_pass` is only set when `/opt/tak` exists, so Authentik-first deploys skipped service-account password initialization entirely.
+- **Symptom**:
+  - 8446 login succeeds but lands in WebTAK instead of AdminUI even when `webadmin` is superuser and in `tak_ROLE_ADMIN` in Authentik.
+  - LDAP bind checks fail: `ldap_bind: Invalid credentials (49)` for `cn=adm_ldapservice,ou=users,dc=takldap`.
+- **Why this causes WebTAK**: TAK Server uses service account bind to resolve group membership (`adminGroup="ROLE_ADMIN"`). If service-account bind fails, role resolution fails and users are treated as non-admin.
+- **Fix implemented**: Moved `adm_ldapservice` create/get + `set_password` block out of the `webadmin_pass` gate so it always runs (Auth-only, TAK-only, and combined deployments).
+- **Validation protocol**:
+  1. Verify service-account bind succeeds:
+     `ldapsearch -x -H ldap://127.0.0.1:389 -D "cn=adm_ldapservice,ou=users,dc=takldap" -w "$LDAP_PASS" -b "dc=takldap" -s base "(objectClass=*)"`
+  2. Confirm `webadmin` in Authentik has superuser + `tak_ROLE_ADMIN`.
+  3. Restart TAK Server and retest 8446 in an incognito window.
+
 ---
 
 ## 5. Problems Encountered During Development
@@ -956,6 +971,9 @@ The `ldap-authentication-flow` is defined in `tak-ldap-setup.yaml` blueprint wit
 | 29 | **MediaMTX External Sources UI corruption (infra-TAK only)** | **Stale `mediamtx_ldap_overlay.py` on server had legacy JS injectors (`vis-badge`, `_visCache`, `_makeShareBtn`) duplicating badges/buttons** | **`mediamtx_recovery()` always syncs current overlay from repo to `/opt/mediamtx-webeditor/` before restart. Click Patch web editor.** |
 | 30 | **Guard Dog Updates monitor stays red** | **`takupdatesguard.timer` never created on older installs; `guarddog_update()` only refreshed scripts, not units** | **`guarddog_update()` now writes + enables `.service` + `.timer`, daemon-reload. Click Update Guard Dog.** |
 | 31 | **Update Now causes rebase conflicts (v0.2.4, v0.2.5)** | **`git pull --rebase --autostash` + tag checkout on field installs with detached HEAD / stale git state** | **Rewrote to `fetch --tags` + `checkout --force <tag>`. No pull/rebase/merge. See `docs/TESTING-UPDATES.md`.** |
+| 32 | **Auth-only then TAK deploy leads to WebTAK (not AdminUI) despite correct Authentik groups** | **`adm_ldapservice` password API setup was wrongly nested under `if webadmin_pass` (which is false when `/opt/tak` is missing)** | **Run service-account password setup unconditionally in Authentik deploy flow; verify with `ldapsearch` bind (`result: 0 Success`)** |
+| 33 | **LDAP outpost created but token injection failed with timeout** | **Outpost create request timeout too low (10s) during first-run bootstrap load** | **Increase outpost create API timeout to 30s; token capture and compose injection complete reliably** |
+| 34 | **Step 8 API timeout warning on fresh Authentik deploys** | **First-run migrations exceeded 450s wait window on smaller VPS** | **Increase API wait attempts from 90 to 150 (~750s) to avoid false timeout warnings** |
 
 ---
 
@@ -993,6 +1011,9 @@ Before publishing a new tag, temporarily set `VERSION` in `app.py` to an older v
 
 ### 6.11 Overlay convergence on recovery
 When a per-module patch file (like `mediamtx_ldap_overlay.py`) exists both in the repo and on the server, recovery/patch actions should always sync repo → server before restarting the service. This guarantees convergence regardless of what stale version is on disk.
+
+### 6.12 Secret extraction from `.env` (critical shell detail)
+When reading secrets from `.env`, always use `cut -d= -f2-` (not `-f2`). Several generated secrets can include `=`; truncating them causes false `Invalid credentials (49)` and misleading LDAP debugging.
 
 ---
 
