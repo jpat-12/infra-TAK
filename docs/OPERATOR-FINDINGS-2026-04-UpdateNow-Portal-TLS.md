@@ -75,7 +75,7 @@ Documented at length in [RELEASE-v0.3.9-alpha.md](RELEASE-v0.3.9-alpha.md) and s
 
 **Cause:** **`tak-8089-watch.sh`** used to treat the TCP **accept queue** as “bad” when **`Recv-Q >= Send-Q - 5`**. Internet scanners partially fill the queue on **public 8089** all day → **false “unhealthy”** → **Guard Dog restarts TAK** → brief relief → repeat after grace period.
 
-**Fix (repo):** Shipped **v0.4.3-alpha**: backlog must reach **≥95%** of the limit before tripping; **5** consecutive failures before restart (see `scripts/guarddog/tak-8089-watch.sh`). **Update infra-TAK** then **↻ Update Guard Dog** so `/opt/tak-guarddog/` picks up the script.
+**Fix (repo):** Shipped **v0.4.3-alpha**: backlog must reach **≥95%** of the limit before tripping; **5** consecutive failures before restart (see `scripts/guarddog/tak-8089-watch.sh`). The same release also tightens **Authentik** checks (`/-/health/live/` + short retry) and improves **Auto-VACUUM** skip lines in **`restarts.log`**. **Update infra-TAK** then **↻ Update Guard Dog** so `/opt/tak-guarddog/` picks up the scripts.
 
 ---
 
@@ -98,7 +98,7 @@ Documented at length in [RELEASE-v0.3.9-alpha.md](RELEASE-v0.3.9-alpha.md) and s
 - **v0.4.0** — API latest tag; single-tag fetch (clobber partial fix).
 - **v0.4.1** — **`remote.origin.fetch=`** for Update Now fetches (clobber fix completed).
 - **v0.4.2** — TAK Portal **`TAK_URL`** prefers FQDN; release notes stress **TAK Portal → Update config** after upgrade.
-- **v0.4.3** — Guard Dog **8089** watch (95% backlog, 5 fails); **↻ Update Guard Dog** after console upgrade.
+- **v0.4.3** — Guard Dog **8089** (95% backlog, 5 fails), **Authentik** health retry + **`/-/health/live/`**, **Auto-VACUUM** skip logs; **↻ Update Guard Dog** after console upgrade.
 
 ---
 
