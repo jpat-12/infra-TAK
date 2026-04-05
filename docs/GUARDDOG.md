@@ -6,7 +6,7 @@ Guard Dog is TAK Server health monitoring and auto-recovery: nine monitors plus 
 
 | Monitor      | Interval | What it does | On failure |
 |-------------|----------|--------------|------------|
-| **Port 8089** | 1 min  | Checks TAK Server port 8089 is listening and accepting connections | Auto-restart after 3 consecutive failures |
+| **Port 8089** | 1 min  | Checks TAK Server port 8089 is **LISTEN** and TCP accept queue is not **critically** full (≥95% of backlog limit; avoids false restarts when the public CoT port is scanner-noisy) | Auto-restart after **5** consecutive failures |
 | **Process**   | 1 min  | Verifies all 5 TAK Server Java processes (messaging, api, config, plugins, retention) | Auto-restart after 3 consecutive failures |
 | **Network**   | 1 min  | Pings 1.1.1.1 and 8.8.8.8 | Alert only (no restart) — helps tell network vs server issues |
 | **PostgreSQL**| 5 min  | Checks PostgreSQL is running | Attempts restart and sends alert |
@@ -134,7 +134,7 @@ If you have a **TAK Server VM runbook** (disk full, Docker container logs, Postg
 | **Root disk full** | Yes — **Disk** monitor (alert at 80% / 90%) | [DISK-AND-LOGS.md](DISK-AND-LOGS.md): truncate big container logs, set Docker log limits |
 | **Docker container logs (e.g. Node-RED 8 GB)** | No — Guard Dog doesn’t truncate or cap logs | One-time: truncate + `scripts/set-docker-log-limits.sh`; see DISK-AND-LOGS.md |
 | **PostgreSQL down / recovery** | Yes — **PostgreSQL** monitor + TAK starts *after* Postgres (Guard Dog deploy sets that) | — |
-| **TAK Server down (port 8089, processes)** | Yes — **Port 8089**, **Process** monitors (auto-restart after 3 failures) | — |
+| **TAK Server down (port 8089, processes)** | Yes — **Port 8089** (5 failures; backlog near-full only), **Process** (3 failures) | — |
 | **CoT DB size / retention** | Yes — **CoT database size** monitor (alert at 25 GB / 40 GB); VACUUM via TAK Server page | — |
 | **OOM in TAK logs** | Yes — **OOM** monitor (scans logs, restart + alert) | — |
 | **Authentik / Node-RED / MediaMTX / CloudTAK down** | Yes — service monitors (alert + restart after 3 failures) when those services are installed | — |
