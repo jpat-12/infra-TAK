@@ -73,6 +73,7 @@ TAK Server rewrites portions of `CoreConfig.xml` at runtime:
 
 ## Known issues
 
+- **Update Now — "would clobber existing tag"**: The first `v0.3.9-alpha` publish could fail **Update Now** on boxes whose local `v0.3.8-alpha` (or other release tags) pointed at a different commit than GitHub. **Workaround (SSH on the console host):** `cd <infra-TAK>` then `git fetch origin --tags --force` and click **Update Now** again, or `git checkout --force v0.3.9-alpha && sudo systemctl restart takwerx-console`. **Fix:** `update_apply()` now uses `git fetch origin --tags --force` and `git fetch -f origin tag …` (ship in **v0.3.10-alpha** or cherry-pick that commit).
 - **LDAP bind verification can time out during deploy** even when 8446 login works. Use **Resync LDAP** if 8446 actually fails.
 - **Password change widget** currently only saves to `settings.json`. A future update will make it update flat-file (no Authentik) or Authentik (with LDAP) in one click.
 - **Remote Authentik deploy** does not yet run the same final `adm_ldapservice` gate as local deploy (SSH/console would need an explicit remote bind check).

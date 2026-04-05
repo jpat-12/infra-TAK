@@ -7,6 +7,8 @@ Release Date: April 2026
 ## Highlights
 
 - **Guard Dog — port 8089 monitor (false TAK restarts):** On servers with **public** CoT port **8089**, internet scanners partially fill the TCP **accept queue** all day. The old watch script treated **`Recv-Q >= Send-Q - 5`** as “unhealthy” and restarted **TAK Server** every ~15–20 minutes in a loop, even when TAK was fine. **v0.4.3** only flags backlog when the queue is **≥95%** full and requires **5** consecutive failures before restart. See **`scripts/guarddog/tak-8089-watch.sh`** and [GUARDDOG.md](GUARDDOG.md).
+- **Guard Dog — Authentik health:** **`tak-authentik-watch.sh`** tries **`/-/health/live/`** first (then **`/`**), accepts **200/204/301/302**, and waits **3s** and retries once **before** counting a failure. That reduces **`docker compose restart`** on transient **500/503** during worker or DB blips.
+- **Guard Dog — Auto-VACUUM logging:** When the daily **`tak-auto-vacuum.sh`** job cannot read the dead-tuple count (SSH/psql failure), **`/var/log/takguard/restarts.log`** now records **two-server vs local** and **`user@target`** so ops can see whether **Server One** or local Postgres is the problem.
 
 ---
 

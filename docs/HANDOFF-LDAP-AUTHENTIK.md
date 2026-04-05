@@ -16,7 +16,74 @@ Use docs/HANDOFF-LDAP-AUTHENTIK.md as the single source of truth for what's done
 
 ---
 
+## LDAP vs flat-file and `webadmin` (8446) — why infra-TAK strips one XML row
+
+**What we abandoned:** Deleting or emptying `UserAuthenticationFile.xml` wholesale, or expecting it to stay gone — TAK Server can **rewrite** that file on restart, so that approach was brittle.
+
+**What we validated in the field:** With **LDAP as the default auth** in `CoreConfig.xml` (`default="ldap"` and a proper `<ldap …/>` block toward Authentik), normal 8446 password auth goes through **LDAP**, not “mystery fallback” to flat-file for users who exist only in LDAP.
+
+**Why `_remove_webadmin_from_userauth()` still exists (surgical, not global):** The painful bug was **duplicate identity**: the same username **`webadmin`** present in **both** `UserAuthenticationFile.xml` (e.g. from an old `UserManager.jar usermod`) **and** Authentik/LDAP. In that situation TAK can check the flat-file entry for `webadmin` and ignore the LDAP password you expect — wrong password / “shadowing” symptoms. See `docs/WORKFLOW-8446-WEBADMIN.md` for the table and flow.
+
+**What the code does:** It does **not** remove the `<File …/>` provider from CoreConfig by default. It **only removes the `<user identifier="webadmin" …>` element** from `UserAuthenticationFile.xml` when Authentik is in use, after sync — minimal change so there is no second password store for that one account. Optional: TAK Server page **flat-file auth toggle** if you want to disable the File provider entirely.
+
+**Complexity tradeoff:** Extra moving parts in exchange for a **narrow** fix (one user, one file) instead of fighting TAK’s file lifecycle or over-disabling flat-file for everyone.
+
+---
+
+## April 2026 — Update Now, Git recovery, TAK Portal TLS (v0.4.0 → v0.4.2)
+
+**Structured digest (tables + checklist):** [OPERATOR-FINDINGS-2026-04-UpdateNow-Portal-TLS.md](OPERATOR-FINDINGS-2026-04-UpdateNow-Portal-TLS.md)  
+**Customer-facing release + skip-upgrade notes:** [RELEASE-v0.4.2-alpha.md](RELEASE-v0.4.2-alpha.md)  
+**SSH recovery (canonical repo, not stale `origin`):** [README — Universal recovery (SSH)](../README.md#universal-recovery-ssh)
+
+### Update Now / `git` (v0.4.0, v0.4.1)
+
+- **Symptom:** **`would clobber existing tag`** on **Update Now**; sometimes unwanted ref updates alongside tag fetch.
+- **Cause (part 1):** Old path used **`git fetch --tags`** (or equivalent bulk tag sync). Local tags that didn’t match GitHub caused hard failure.
+- **Fix v0.4.0:** Resolve latest tag from **GitHub API**, fetch **only** `+refs/tags/<tag>:refs/tags/<tag>`.
+- **Cause (part 2):** Git still applies **`remote.origin.fetch`** together with explicit refspecs → extra refs/tags could still move → clobber could persist.
+- **Fix v0.4.1:** Run those fetches with **`git -c remote.origin.fetch=`** so only the intended refspec runs (main fallback uses the same isolation).
+- **README / field recovery:** **`git fetch origin main`** is unsafe if **`origin`** points at a **fork** or wrong URL — **`origin/main`** stays ancient. Recovery must use **`https://github.com/takwerx/infra-TAK.git`** (see README one-liner).
+- **Process:** **[TESTING-UPDATES.md](TESTING-UPDATES.md)** before pushing a **tag** (tag drives “Update Available”).
+
+### TAK Portal `TAK_URL` — IP vs FQDN (v0.4.2)
+
+- **Symptom:** Portal **not “connected”** to TAK; **QR / enrollment** → **identity could not be verified**; **`TAK_URL`** showed **VPS IP** instead of **`takserver.<fqdn>`**.
+- **Cause:** **`_takportal_build_settings_dict()`** preferred **`server_ip`** for Docker→host reachability, but TAK’s cert is for a **hostname**. Node TLS hostname verification fails on **`https://<ip>:8443/Marti`**.
+- **Fix v0.4.2:** When **`fqdn`** is set, prefer **`_get_takserver_host()`** for the `TAK_URL` host; IP fallback for no-domain installs.
+- **Operator action:** After upgrading the console, **TAK Portal → Update config** (🔄) **required** — the container’s **`settings.json`** does not update by itself. Fresh portal **deploy** already runs the builder. Optional: **Sync TAK Server CA**.
+- **Slack TL;DR:** Upgrade to **v0.4.2** → **Authentik Update config** once → **TAK Portal Update config** once → **Resync LDAP** if 8446 odd. IN/OUT group UI oddities may clear when Portal↔TAK is healthy (collateral, not a separate marketed fix).
+
+### Authentik (unchanged track, still required for big jumps)
+
+- v0.3.9+ behavior remains: **Update config** clears Postgres tuning drift, LDAP/webadmin/8446 hardening, etc. See **RELEASE-v0.4.2** for the skip-upgrade summary.
+
+### TAK Server port 8089 — scary red `ERROR` lines
+
+- **Symptom:** **`NotSslRecordException`**, **`PEER_DID_NOT_RETURN_A_CERTIFICATE`**, random **remote IPs** on **local port 8089**.
+- **Cause:** **Public CoT/TLS** port; **internet scanners** send non-TLS or wrong TLS. Normal noise.
+- **Impact:** Usually **none**; real clients show **INFO** subscriptions. Worry only about **disk** (unbounded logs) or **DDoS** scale.
+
+### Guard Dog — `8089 unhealthy` restarts every ~15–20 min
+
+- **Symptom:** **`restarts.log`** → **`restart | 8089 unhealthy`** on a timer; TAK keeps restarting though clients sometimes work.
+- **Cause:** Old **`tak-8089-watch.sh`** treated a **slightly full** TCP accept queue as failure (**`Recv-Q >= Send-Q-5`**). Scanner traffic on public **8089** fills the queue partway → **false positive** → restart → grace period → repeat.
+- **Fix:** Updated script uses **≥95%** queue saturation and **5** failures; **↻ Update Guard Dog** to install the new script. See **OPERATOR-FINDINGS** §8089 / **GUARDDOG.md**.
+
+### Version line (for handoff search)
+
+| Tag | What |
+|-----|------|
+| **v0.4.0** | API latest tag; single-tag fetch (partial clobber fix). |
+| **v0.4.1** | `remote.origin.fetch=` isolation (clobber fix complete). |
+| **v0.4.2** | TAK Portal `TAK_URL` FQDN; release notes + operator digest. |
+| **v0.4.3** | Guard Dog **8089**, **Authentik** probe + retry, **Auto-VACUUM** logging; **↻ Update Guard Dog** after console upgrade. |
+
+---
+
 ## 0. Current Session State (Last Updated: 2026-03-16) — v0.2.6-alpha
+
+**NOTE (2026-04):** For **current** Update Now / recovery / TAK Portal TLS context, read **“April 2026 — Update Now…”** above and [OPERATOR-FINDINGS-2026-04-UpdateNow-Portal-TLS.md](OPERATOR-FINDINGS-2026-04-UpdateNow-Portal-TLS.md). Section 0 below is **historical** (v0.2.6 era) and has not been fully rewritten.
 
 **This section is the single source of truth.** Update it when server state changes. This doc is a living handoff between machines -- only describe what is true right now.
 
@@ -919,6 +986,21 @@ The `ldap-authentication-flow` is defined in `tak-ldap-setup.yaml` blueprint wit
 - **Why**: With `state: created`, Authentik only applies the user model once. But `state: present` or blueprint reconciliation could overwrite the API-set password with a hashed version of the env var, causing LDAP bind failures. The password is set exclusively via the Authentik API (`/api/v3/core/users/{pk}/set_password/`) after user creation.
 - **CRITICAL LESSON**: Never set password in blueprints for service accounts that need to authenticate via LDAP. The password must be set via API to ensure proper hashing.
 
+### 4.15 Authentik-first deploy ordering (CRITICAL)
+
+- **Decision**: Setting `adm_ldapservice` password via API must run regardless of TAK Server install state.
+- **Root cause found on test10**: In local Authentik deploy flow, service-account password setup was accidentally gated under `if webadmin_pass:`. `webadmin_pass` is only set when `/opt/tak` exists, so Authentik-first deploys skipped service-account password initialization entirely.
+- **Symptom**:
+  - 8446 login succeeds but lands in WebTAK instead of AdminUI even when `webadmin` is superuser and in `tak_ROLE_ADMIN` in Authentik.
+  - LDAP bind checks fail: `ldap_bind: Invalid credentials (49)` for `cn=adm_ldapservice,ou=users,dc=takldap`.
+- **Why this causes WebTAK**: TAK Server uses service account bind to resolve group membership (`adminGroup="ROLE_ADMIN"`). If service-account bind fails, role resolution fails and users are treated as non-admin.
+- **Fix implemented**: Moved `adm_ldapservice` create/get + `set_password` block out of the `webadmin_pass` gate so it always runs (Auth-only, TAK-only, and combined deployments).
+- **Validation protocol**:
+  1. Verify service-account bind succeeds:
+     `ldapsearch -x -H ldap://127.0.0.1:389 -D "cn=adm_ldapservice,ou=users,dc=takldap" -w "$LDAP_PASS" -b "dc=takldap" -s base "(objectClass=*)"`
+  2. Confirm `webadmin` in Authentik has superuser + `tak_ROLE_ADMIN`.
+  3. Restart TAK Server and retest 8446 in an incognito window.
+
 ---
 
 ## 5. Problems Encountered During Development
@@ -956,6 +1038,9 @@ The `ldap-authentication-flow` is defined in `tak-ldap-setup.yaml` blueprint wit
 | 29 | **MediaMTX External Sources UI corruption (infra-TAK only)** | **Stale `mediamtx_ldap_overlay.py` on server had legacy JS injectors (`vis-badge`, `_visCache`, `_makeShareBtn`) duplicating badges/buttons** | **`mediamtx_recovery()` always syncs current overlay from repo to `/opt/mediamtx-webeditor/` before restart. Click Patch web editor.** |
 | 30 | **Guard Dog Updates monitor stays red** | **`takupdatesguard.timer` never created on older installs; `guarddog_update()` only refreshed scripts, not units** | **`guarddog_update()` now writes + enables `.service` + `.timer`, daemon-reload. Click Update Guard Dog.** |
 | 31 | **Update Now causes rebase conflicts (v0.2.4, v0.2.5)** | **`git pull --rebase --autostash` + tag checkout on field installs with detached HEAD / stale git state** | **Rewrote to `fetch --tags` + `checkout --force <tag>`. No pull/rebase/merge. See `docs/TESTING-UPDATES.md`.** |
+| 32 | **Auth-only then TAK deploy leads to WebTAK (not AdminUI) despite correct Authentik groups** | **`adm_ldapservice` password API setup was wrongly nested under `if webadmin_pass` (which is false when `/opt/tak` is missing)** | **Run service-account password setup unconditionally in Authentik deploy flow; verify with `ldapsearch` bind (`result: 0 Success`)** |
+| 33 | **LDAP outpost created but token injection failed with timeout** | **Outpost create request timeout too low (10s) during first-run bootstrap load** | **Increase outpost create API timeout to 30s; token capture and compose injection complete reliably** |
+| 34 | **Step 8 API timeout warning on fresh Authentik deploys** | **First-run migrations exceeded 450s wait window on smaller VPS** | **Increase API wait attempts from 90 to 150 (~750s) to avoid false timeout warnings** |
 
 ---
 
@@ -993,6 +1078,9 @@ Before publishing a new tag, temporarily set `VERSION` in `app.py` to an older v
 
 ### 6.11 Overlay convergence on recovery
 When a per-module patch file (like `mediamtx_ldap_overlay.py`) exists both in the repo and on the server, recovery/patch actions should always sync repo → server before restarting the service. This guarantees convergence regardless of what stale version is on disk.
+
+### 6.12 Secret extraction from `.env` (critical shell detail)
+When reading secrets from `.env`, always use `cut -d= -f2-` (not `-f2`). Several generated secrets can include `=`; truncating them causes false `Invalid credentials (49)` and misleading LDAP debugging.
 
 ---
 
