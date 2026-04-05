@@ -1120,7 +1120,7 @@ When reading secrets from `.env`, always use `cut -d= -f2-` (not `-f2`). Several
 
 ```bash
 git clone --depth 1 -b dev https://github.com/takwerx/infra-TAK.git ~/infra-TAK
-cd ~/infra-TAK && chmod +x start.sh && sudo ./start.sh
+cd ~/infra-TAK && sudo ./start.sh
 ```
 
 ### Deployment Order (Authentik-first, verified 2026-02-23)

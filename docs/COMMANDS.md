@@ -5,7 +5,6 @@
 ```bash
 git clone --depth 1 -b dev https://github.com/takwerx/infra-TAK.git
 cd infra-TAK
-chmod +x start.sh
 sudo ./start.sh
 ```
 
