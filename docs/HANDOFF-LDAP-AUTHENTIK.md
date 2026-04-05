@@ -30,7 +30,53 @@ Use docs/HANDOFF-LDAP-AUTHENTIK.md as the single source of truth for what's done
 
 ---
 
+## April 2026 — Update Now, Git recovery, TAK Portal TLS (v0.4.0 → v0.4.2)
+
+**Structured digest (tables + checklist):** [OPERATOR-FINDINGS-2026-04-UpdateNow-Portal-TLS.md](OPERATOR-FINDINGS-2026-04-UpdateNow-Portal-TLS.md)  
+**Customer-facing release + skip-upgrade notes:** [RELEASE-v0.4.2-alpha.md](RELEASE-v0.4.2-alpha.md)  
+**SSH recovery (canonical repo, not stale `origin`):** [README — Universal recovery (SSH)](../README.md#universal-recovery-ssh)
+
+### Update Now / `git` (v0.4.0, v0.4.1)
+
+- **Symptom:** **`would clobber existing tag`** on **Update Now**; sometimes unwanted ref updates alongside tag fetch.
+- **Cause (part 1):** Old path used **`git fetch --tags`** (or equivalent bulk tag sync). Local tags that didn’t match GitHub caused hard failure.
+- **Fix v0.4.0:** Resolve latest tag from **GitHub API**, fetch **only** `+refs/tags/<tag>:refs/tags/<tag>`.
+- **Cause (part 2):** Git still applies **`remote.origin.fetch`** together with explicit refspecs → extra refs/tags could still move → clobber could persist.
+- **Fix v0.4.1:** Run those fetches with **`git -c remote.origin.fetch=`** so only the intended refspec runs (main fallback uses the same isolation).
+- **README / field recovery:** **`git fetch origin main`** is unsafe if **`origin`** points at a **fork** or wrong URL — **`origin/main`** stays ancient. Recovery must use **`https://github.com/takwerx/infra-TAK.git`** (see README one-liner).
+- **Process:** **[TESTING-UPDATES.md](TESTING-UPDATES.md)** before pushing a **tag** (tag drives “Update Available”).
+
+### TAK Portal `TAK_URL` — IP vs FQDN (v0.4.2)
+
+- **Symptom:** Portal **not “connected”** to TAK; **QR / enrollment** → **identity could not be verified**; **`TAK_URL`** showed **VPS IP** instead of **`takserver.<fqdn>`**.
+- **Cause:** **`_takportal_build_settings_dict()`** preferred **`server_ip`** for Docker→host reachability, but TAK’s cert is for a **hostname**. Node TLS hostname verification fails on **`https://<ip>:8443/Marti`**.
+- **Fix v0.4.2:** When **`fqdn`** is set, prefer **`_get_takserver_host()`** for the `TAK_URL` host; IP fallback for no-domain installs.
+- **Operator action:** After upgrading the console, **TAK Portal → Update config** (🔄) **required** — the container’s **`settings.json`** does not update by itself. Fresh portal **deploy** already runs the builder. Optional: **Sync TAK Server CA**.
+- **Slack TL;DR:** Upgrade to **v0.4.2** → **Authentik Update config** once → **TAK Portal Update config** once → **Resync LDAP** if 8446 odd. IN/OUT group UI oddities may clear when Portal↔TAK is healthy (collateral, not a separate marketed fix).
+
+### Authentik (unchanged track, still required for big jumps)
+
+- v0.3.9+ behavior remains: **Update config** clears Postgres tuning drift, LDAP/webadmin/8446 hardening, etc. See **RELEASE-v0.4.2** for the skip-upgrade summary.
+
+### TAK Server port 8089 — scary red `ERROR` lines
+
+- **Symptom:** **`NotSslRecordException`**, **`PEER_DID_NOT_RETURN_A_CERTIFICATE`**, random **remote IPs** on **local port 8089**.
+- **Cause:** **Public CoT/TLS** port; **internet scanners** send non-TLS or wrong TLS. Normal noise.
+- **Impact:** Usually **none**; real clients show **INFO** subscriptions. Worry only about **disk** (unbounded logs) or **DDoS** scale.
+
+### Version line (for handoff search)
+
+| Tag | What |
+|-----|------|
+| **v0.4.0** | API latest tag; single-tag fetch (partial clobber fix). |
+| **v0.4.1** | `remote.origin.fetch=` isolation (clobber fix complete). |
+| **v0.4.2** | TAK Portal `TAK_URL` FQDN; release notes + operator digest. |
+
+---
+
 ## 0. Current Session State (Last Updated: 2026-03-16) — v0.2.6-alpha
+
+**NOTE (2026-04):** For **current** Update Now / recovery / TAK Portal TLS context, read **“April 2026 — Update Now…”** above and [OPERATOR-FINDINGS-2026-04-UpdateNow-Portal-TLS.md](OPERATOR-FINDINGS-2026-04-UpdateNow-Portal-TLS.md). Section 0 below is **historical** (v0.2.6 era) and has not been fully rewritten.
 
 **This section is the single source of truth.** Update it when server state changes. This doc is a living handoff between machines -- only describe what is true right now.
 
