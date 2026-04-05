@@ -20,7 +20,7 @@
 
 ---
 
-## Deploy flow (v0.3.9+)
+## Deploy flow (v0.4.0+ / v0.3.9+)
 
 ### With Authentik (LDAP)
 
