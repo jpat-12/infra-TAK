@@ -99,6 +99,7 @@ Documented at length in [RELEASE-v0.3.9-alpha.md](RELEASE-v0.3.9-alpha.md) and s
 - **v0.4.1** — **`remote.origin.fetch=`** for Update Now fetches (clobber fix completed).
 - **v0.4.2** — TAK Portal **`TAK_URL`** prefers FQDN; release notes stress **TAK Portal → Update config** after upgrade.
 - **v0.4.3** — Guard Dog **8089** (95% backlog, 5 fails), **Authentik** health retry + **`/-/health/live/`**, **Auto-VACUUM** skip logs; **↻ Update Guard Dog** after console upgrade.
+- **v0.4.4** — Guard Dog **8089** TCP connect probe replaces queue-depth (stops restart loops on scanner-heavy ports); **↻ Update Guard Dog** after console upgrade.
 
 ---
 
