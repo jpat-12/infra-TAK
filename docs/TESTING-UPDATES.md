@@ -6,9 +6,9 @@ The Update Now button uses a **different code path** from `git pull origin dev`.
 
 ## How Update Now works (current code)
 
-1. Console asks the GitHub **API** for tags and picks the **highest** release tag (e.g. `v0.4.0-alpha`).
+1. Console asks the GitHub **API** for tags and picks the **highest** release tag (e.g. `v0.4.1-alpha`).
 2. If that version is newer than running `VERSION`, it shows **Update Available**.
-3. On **Update Now**, it runs **`git fetch origin +refs/tags/<that-tag>:refs/tags/<that-tag>`** (only that tag), then **`git checkout --force`** that tag, then restarts the service. If tag resolution fails, it falls back to fetching **`main`** as `origin/main`.
+3. On **Update Now**, it runs **`git -c remote.origin.fetch= fetch origin +refs/tags/<that-tag>:refs/tags/<that-tag>`** (default fetch disabled so Git does not also update every remote-tracking ref / tag), then **`git checkout --force`** that tag, then restarts the service. If tag resolution fails, it falls back to an isolated fetch of **`main`** as `origin/main`.
 
 Tags drive the banner. Pushing to **`dev`** or **`main`** alone does **not** trigger customer updates. Pushing a **tag** does.
 
@@ -16,9 +16,9 @@ Tags drive the banner. Pushing to **`dev`** or **`main`** alone does **not** tri
 
 Older updaters used **`git fetch --tags`**. That updates **every** tag. If a field box has a **local** `v0.3.8-alpha` (or similar) pointing at a **different commit** than GitHub, Git refuses with **`would clobber existing tag`** and the whole update fails. Clones where local tags always matched GitHub never saw it.
 
-**v0.4.0+** fetches **only** the single release tag you need, so mismatched **older** tags on disk are not touched.
+**v0.4.0+** resolved the latest tag via the API and passed a single-tag refspec. **v0.4.1+** also clears **`remote.origin.fetch`** for that fetch, because explicit refspecs are **additive** with the default — without that, some installs still hit **`would clobber existing tag`**.
 
-**Chicken-and-egg:** A box still running **pre-v0.4.0** code cannot get that fix via **Update Now** if fetch already fails there. **One-time** recovery: [PULL-AND-RESTART.md](PULL-AND-RESTART.md) (or SSH: `git fetch` + `git checkout --force v0.4.0-alpha` + restart console). After that, **Update Now** uses the new path.
+**Chicken-and-egg:** A box still running **pre-v0.4.0** code cannot get that fix via **Update Now** if fetch already fails there. **One-time** recovery: [PULL-AND-RESTART.md](PULL-AND-RESTART.md) (or SSH: `git fetch` + `git checkout --force v0.4.1-alpha` + restart console). After that, **Update Now** uses the isolated-fetch path.
 
 ---
 
@@ -113,7 +113,7 @@ Use **Guard Dog → Send test email** first if Email Relay is not verified.
 | Push `main` | Nobody |
 | Push a **tag** | Everyone whose `VERSION` is older than that release |
 
-**Release safety:** Before `git tag`, `app.py` **`VERSION`** must equal the tag without the `v` (e.g. tag `v0.4.0-alpha` → `VERSION = "0.4.0-alpha"`). Copy-paste check: [COMMANDS.md](COMMANDS.md) release block.
+**Release safety:** Before `git tag`, `app.py` **`VERSION`** must equal the tag without the `v` (e.g. tag `v0.4.1-alpha` → `VERSION = "0.4.1-alpha"`). Copy-paste check: [COMMANDS.md](COMMANDS.md) release block.
 
 ---
 
