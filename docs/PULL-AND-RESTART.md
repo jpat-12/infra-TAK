@@ -1,5 +1,7 @@
 # Pull and restart on VPS
 
+**Broken version / Update Now / git errors:** use one place — [README → Universal recovery (SSH)](../README.md#universal-recovery-ssh) (copy-paste block). This doc adds **dev**/**main**-by-branch steps and **shallow-clone** fixes.
+
 Run each command separately (one line at a time). Do not combine commands.
 
 ## Find the correct directory first
