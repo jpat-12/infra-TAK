@@ -12,9 +12,11 @@ Release Date: April 2026
 
 ---
 
-## Required after you upgrade
+## Required after you upgrade — Guard Dog is not automatic
 
-**If Guard Dog is installed:** open **Guard Dog** in infra-TAK and click **↻ Update Guard Dog** once. That copies the new scripts under **`/opt/tak-guarddog/`**; the console **VERSION** bump alone does **not** update on-disk watch scripts.
+**Update Now** (or any console upgrade) **does not** refresh Guard Dog’s on-disk scripts. The new **`tak-8089-watch.sh`**, **`tak-authentik-watch.sh`**, and **`tak-auto-vacuum.sh`** in this release **do nothing** until you deploy them.
+
+**If Guard Dog is installed:** after the console is on **v0.4.3-alpha**, open **Guard Dog** in infra-TAK and click **↻ Update Guard Dog** (the Update control on that page) **once**. That copies the scripts from the console checkout into **`/opt/tak-guarddog/`** and is the only way those fixes take effect. Skipping this step leaves the **old** watch scripts running.
 
 Optional on noisy boxes: **`echo 0 | sudo tee /var/lib/takguard/8089.failcount`**
 
