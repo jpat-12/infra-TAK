@@ -16,6 +16,20 @@ Use docs/HANDOFF-LDAP-AUTHENTIK.md as the single source of truth for what's done
 
 ---
 
+## LDAP vs flat-file and `webadmin` (8446) — why infra-TAK strips one XML row
+
+**What we abandoned:** Deleting or emptying `UserAuthenticationFile.xml` wholesale, or expecting it to stay gone — TAK Server can **rewrite** that file on restart, so that approach was brittle.
+
+**What we validated in the field:** With **LDAP as the default auth** in `CoreConfig.xml` (`default="ldap"` and a proper `<ldap …/>` block toward Authentik), normal 8446 password auth goes through **LDAP**, not “mystery fallback” to flat-file for users who exist only in LDAP.
+
+**Why `_remove_webadmin_from_userauth()` still exists (surgical, not global):** The painful bug was **duplicate identity**: the same username **`webadmin`** present in **both** `UserAuthenticationFile.xml` (e.g. from an old `UserManager.jar usermod`) **and** Authentik/LDAP. In that situation TAK can check the flat-file entry for `webadmin` and ignore the LDAP password you expect — wrong password / “shadowing” symptoms. See `docs/WORKFLOW-8446-WEBADMIN.md` for the table and flow.
+
+**What the code does:** It does **not** remove the `<File …/>` provider from CoreConfig by default. It **only removes the `<user identifier="webadmin" …>` element** from `UserAuthenticationFile.xml` when Authentik is in use, after sync — minimal change so there is no second password store for that one account. Optional: TAK Server page **flat-file auth toggle** if you want to disable the File provider entirely.
+
+**Complexity tradeoff:** Extra moving parts in exchange for a **narrow** fix (one user, one file) instead of fighting TAK’s file lifecycle or over-disabling flat-file for everyone.
+
+---
+
 ## 0. Current Session State (Last Updated: 2026-03-16) — v0.2.6-alpha
 
 **This section is the single source of truth.** Update it when server state changes. This doc is a living handoff between machines -- only describe what is true right now.
