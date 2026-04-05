@@ -6,7 +6,7 @@ Guard Dog is TAK Server health monitoring and auto-recovery: nine monitors plus 
 
 | Monitor      | Interval | What it does | On failure |
 |-------------|----------|--------------|------------|
-| **Port 8089** | 1 min  | Checks TAK Server port 8089 is **LISTEN** and TCP accept queue is not **critically** full (≥95% of backlog limit; avoids false restarts when the public CoT port is scanner-noisy) | Auto-restart after **5** consecutive failures |
+| **Port 8089** | 1 min  | Checks TAK Server port 8089 is **LISTEN** and a **TCP connect to 127.0.0.1:8089** succeeds within 5s. Queue depth is no longer used — scanners can fill the backlog without triggering a restart as long as TAK accepts connections. | Auto-restart after **5** consecutive failures |
 | **Process**   | 1 min  | Verifies all 5 TAK Server Java processes (messaging, api, config, plugins, retention) | Auto-restart after 3 consecutive failures |
 | **Network**   | 1 min  | Pings 1.1.1.1 and 8.8.8.8 | Alert only (no restart) — helps tell network vs server issues |
 | **PostgreSQL**| 5 min  | Checks PostgreSQL is running | Attempts restart and sends alert |
