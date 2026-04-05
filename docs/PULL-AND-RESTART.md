@@ -26,12 +26,17 @@ sudo systemctl restart takwerx-console
 
 ## Pull latest main (stable) and restart
 
+Prefer fetching **canonical** **`main`** (official repo). **`git fetch origin main`** only works if **`git remote -v`** points at **`takwerx/infra-TAK`**; otherwise **`origin/main`** can stay years out of date.
+
 ```bash
 cd $(grep -oP 'WorkingDirectory=\K.*' /etc/systemd/system/takwerx-console.service)
-git fetch origin main
-git checkout -B main origin/main
+git fetch https://github.com/takwerx/infra-TAK.git main
+git checkout --force -B main FETCH_HEAD
+grep '^VERSION' app.py
 sudo systemctl restart takwerx-console
 ```
+
+If **`origin`** is already correct, **`git fetch origin main`** and **`git checkout -B main origin/main`** is equivalent.
 
 ## Shallow clone fix (one-time)
 
