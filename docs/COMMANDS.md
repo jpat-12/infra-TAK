@@ -380,7 +380,7 @@ If (4) shows nothing when you trigger a reset, Authentik isn't reaching Postfix.
 ## Pull dev branch only
 
 ```bash
-cd ~/infra-TAK && git fetch origin dev && git checkout dev && git pull origin dev
+cd ~/infra-TAK && git remote set-branches origin '*' && git fetch origin --tags && git checkout -B dev origin/dev
 ```
 
 *(If your repo lives elsewhere, use that path instead of `~/infra-TAK`, e.g. `~/tak-infra`.)*
@@ -710,7 +710,7 @@ cd /path/to/infra-TAK && chmod +x pull-dev-and-restart.sh && ./pull-dev-and-rest
 **Or run the steps manually:**
 
 ```bash
-cd ~/infra-TAK && git fetch origin dev && git checkout dev && git pull origin dev
+cd ~/infra-TAK && git remote set-branches origin '*' && git fetch origin --tags && git checkout -B dev origin/dev
 ```
 
 ```bash
@@ -751,7 +751,7 @@ git checkout dev -- \
   scripts/guarddog/ \
   README.md \
   docs/COMMANDS.md \
-  docs/RELEASE-v0.3.8-alpha.md \
+  docs/RELEASE-v0.3.9-alpha.md \
   docs/TESTING-UPDATES.md \
   docs/GUARDDOG.md \
   docs/DISK-AND-LOGS.md \
@@ -769,7 +769,7 @@ git checkout dev -- \
 git add -A && git status
 python3 - <<'PY'
 import re, sys
-tag = "v0.3.8-alpha"  # change each release
+tag = "v0.3.9-alpha"  # change each release
 want = tag.lstrip("v")
 app = open("app.py", encoding="utf-8").read()
 m = re.search(r'^VERSION\s*=\s*"([^"]+)"', app, re.M)
@@ -782,9 +782,9 @@ if got != want:
     sys.exit(1)
 print(f"OK: app.py VERSION matches tag ({tag})")
 PY
-git commit -m "v0.3.8-alpha"
+git commit -m "v0.3.9-alpha"
 git push origin main
-git tag v0.3.8-alpha && git push origin v0.3.8-alpha
+git tag v0.3.9-alpha && git push origin v0.3.9-alpha
 git checkout dev
 ```
 
