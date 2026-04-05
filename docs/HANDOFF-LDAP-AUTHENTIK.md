@@ -77,6 +77,7 @@ Use docs/HANDOFF-LDAP-AUTHENTIK.md as the single source of truth for what's done
 | **v0.4.0** | API latest tag; single-tag fetch (partial clobber fix). |
 | **v0.4.1** | `remote.origin.fetch=` isolation (clobber fix complete). |
 | **v0.4.2** | TAK Portal `TAK_URL` FQDN; release notes + operator digest. |
+| **v0.4.3** | Guard Dog **8089** watch hardened; **↻ Update Guard Dog** after console upgrade. |
 
 ---
 

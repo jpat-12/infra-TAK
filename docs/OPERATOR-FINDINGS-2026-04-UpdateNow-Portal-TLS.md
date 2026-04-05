@@ -1,6 +1,6 @@
 # Operator findings — April 2026 (Update Now, recovery, TAK Portal TLS, TAK logs)
 
-Consolidated notes from a rough release window (**v0.4.0 → v0.4.2**): what broke, why, what we changed, and what to tell people. **Customer-facing detail** lives in [RELEASE-v0.4.2-alpha.md](RELEASE-v0.4.2-alpha.md) and the [README](../README.md) **Universal recovery (SSH)** section.
+Consolidated notes from a rough release window (**v0.4.0 → v0.4.3**): what broke, why, what we changed, and what to tell people. **Customer-facing detail** lives in [RELEASE-v0.4.3-alpha.md](RELEASE-v0.4.3-alpha.md) (latest) and [RELEASE-v0.4.2-alpha.md](RELEASE-v0.4.2-alpha.md); [README](../README.md) **Universal recovery (SSH)**.
 
 ---
 
@@ -75,7 +75,7 @@ Documented at length in [RELEASE-v0.3.9-alpha.md](RELEASE-v0.3.9-alpha.md) and s
 
 **Cause:** **`tak-8089-watch.sh`** used to treat the TCP **accept queue** as “bad” when **`Recv-Q >= Send-Q - 5`**. Internet scanners partially fill the queue on **public 8089** all day → **false “unhealthy”** → **Guard Dog restarts TAK** → brief relief → repeat after grace period.
 
-**Fix (repo):** Backlog must reach **≥95%** of the limit before tripping; **5** consecutive failures before restart (see `scripts/guarddog/tak-8089-watch.sh`). **Re-deploy / ↻ Update Guard Dog** on the server so `/opt/tak-guarddog/` picks up the script.
+**Fix (repo):** Shipped **v0.4.3-alpha**: backlog must reach **≥95%** of the limit before tripping; **5** consecutive failures before restart (see `scripts/guarddog/tak-8089-watch.sh`). **Update infra-TAK** then **↻ Update Guard Dog** so `/opt/tak-guarddog/` picks up the script.
 
 ---
 
@@ -86,7 +86,7 @@ Documented at length in [RELEASE-v0.3.9-alpha.md](RELEASE-v0.3.9-alpha.md) and s
 | Universal SSH recovery (canonical `main`) | [README — Universal recovery (SSH)](../README.md#universal-recovery-ssh) |
 | Shallow clone / branch fetch | [PULL-AND-RESTART.md](PULL-AND-RESTART.md) |
 | Pre-tag **Update Now** test | [TESTING-UPDATES.md](TESTING-UPDATES.md) |
-| Release notes (skip v0.3.9, TAK Portal action) | [RELEASE-v0.4.2-alpha.md](RELEASE-v0.4.2-alpha.md) |
+| Release notes | [RELEASE-v0.4.3-alpha.md](RELEASE-v0.4.3-alpha.md), [RELEASE-v0.4.2-alpha.md](RELEASE-v0.4.2-alpha.md) |
 | Selective `main` + tag | [COMMANDS.md](COMMANDS.md) |
 | 8446 / CoreConfig patching | [WORKFLOW-8446-WEBADMIN.md](WORKFLOW-8446-WEBADMIN.md) |
 | Deep LDAP / Authentik history | [HANDOFF-LDAP-AUTHENTIK.md](HANDOFF-LDAP-AUTHENTIK.md) (internal; may not be on `main`) |
@@ -98,6 +98,7 @@ Documented at length in [RELEASE-v0.3.9-alpha.md](RELEASE-v0.3.9-alpha.md) and s
 - **v0.4.0** — API latest tag; single-tag fetch (clobber partial fix).
 - **v0.4.1** — **`remote.origin.fetch=`** for Update Now fetches (clobber fix completed).
 - **v0.4.2** — TAK Portal **`TAK_URL`** prefers FQDN; release notes stress **TAK Portal → Update config** after upgrade.
+- **v0.4.3** — Guard Dog **8089** watch (95% backlog, 5 fails); **↻ Update Guard Dog** after console upgrade.
 
 ---
 
