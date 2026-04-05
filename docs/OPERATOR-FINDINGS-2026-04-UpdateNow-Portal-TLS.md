@@ -69,6 +69,14 @@ Documented at length in [RELEASE-v0.3.9-alpha.md](RELEASE-v0.3.9-alpha.md) and s
 - **Disk** if logs never rotate and volume is extreme.
 - **DDoS**-level connection floods (rare for typical noise).
 
+### Guard Dog: `8089 unhealthy` restart loop (test10 pattern)
+
+**Symptom:** `/var/log/takguard/restarts.log` lines like **`restart | 8089 unhealthy`** every ~15–20 minutes, often with **high load** and healthy free RAM.
+
+**Cause:** **`tak-8089-watch.sh`** used to treat the TCP **accept queue** as “bad” when **`Recv-Q >= Send-Q - 5`**. Internet scanners partially fill the queue on **public 8089** all day → **false “unhealthy”** → **Guard Dog restarts TAK** → brief relief → repeat after grace period.
+
+**Fix (repo):** Backlog must reach **≥95%** of the limit before tripping; **5** consecutive failures before restart (see `scripts/guarddog/tak-8089-watch.sh`). **Re-deploy / ↻ Update Guard Dog** on the server so `/opt/tak-guarddog/` picks up the script.
+
 ---
 
 ## 5. Reference map

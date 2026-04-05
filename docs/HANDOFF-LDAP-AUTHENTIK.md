@@ -64,6 +64,12 @@ Use docs/HANDOFF-LDAP-AUTHENTIK.md as the single source of truth for what's done
 - **Cause:** **Public CoT/TLS** port; **internet scanners** send non-TLS or wrong TLS. Normal noise.
 - **Impact:** Usually **none**; real clients show **INFO** subscriptions. Worry only about **disk** (unbounded logs) or **DDoS** scale.
 
+### Guard Dog — `8089 unhealthy` restarts every ~15–20 min
+
+- **Symptom:** **`restarts.log`** → **`restart | 8089 unhealthy`** on a timer; TAK keeps restarting though clients sometimes work.
+- **Cause:** Old **`tak-8089-watch.sh`** treated a **slightly full** TCP accept queue as failure (**`Recv-Q >= Send-Q-5`**). Scanner traffic on public **8089** fills the queue partway → **false positive** → restart → grace period → repeat.
+- **Fix:** Updated script uses **≥95%** queue saturation and **5** failures; **↻ Update Guard Dog** to install the new script. See **OPERATOR-FINDINGS** §8089 / **GUARDDOG.md**.
+
 ### Version line (for handoff search)
 
 | Tag | What |
