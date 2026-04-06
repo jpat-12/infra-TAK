@@ -11,6 +11,10 @@ Release Date: April 2026
   2. **Daily restart cap (3/day):** All TAK Guard Dog scripts share a single counter (`tak_restart_count_24h`). After 3 restarts in 24 hours, Guard Dog logs `SKIP … manual intervention required` and stops restarting. This prevents infinite restart loops from destroying the system.
   3. **Clean restart procedure:** Instead of `systemctl restart takserver` (which orphans Java processes), Guard Dog now does: `stop → pkill -9 -u tak → rm -rf /opt/tak/work → start`. This kills orphan Java processes and clears the Ignite cache to prevent the `distributed-configuration` corruption loop.
 
+- **Boot sequencer (staggered start).** TAK Server no longer races Docker/Authentik on boot. A new `ExecStartPre` script (`tak-boot-sequencer.sh`) waits for PostgreSQL and Authentik to be healthy before TAK starts. Each wait has a 3-minute timeout. On a 12-core box running TAK + Authentik + TAK Portal, this reduces boot load from 25+ to under 12 by staggering service initialization.
+
+- **Timer delays increased.** Guard Dog timers for 8089, Process, and OOM now wait 20 minutes after boot before first check (was 3-10 min), giving the boot sequencer and TAK ample time to initialize.
+
 - **Root cause:** On test10, the old Guard Dog restarted TAK every 20 minutes for hours. Each restart orphaned Java processes (TAK's LSB init script doesn't kill children). This consumed all RAM, drove load to 33+, corrupted the Ignite cache, and made TAK unable to start — requiring a full VPS reboot to recover.
 
 ---
@@ -36,6 +40,8 @@ All three should return matches.
 
 | Layer | What it does | Value |
 |-------|-------------|-------|
+| Boot sequencer (NEW) | TAK waits for PostgreSQL + Authentik before starting | 3 min timeout each |
+| Timer delay (INCREASED) | Guard Dog timers don't fire until 20 min after boot | 20 min |
 | Boot grace | Skip if system uptime < 15 min | 900s |
 | Service-age grace (NEW) | Skip if TAK started < 10 min ago by *anyone* | 600s |
 | Guard Dog restart grace | Skip if Guard Dog restarted < 15 min ago | 900s |
