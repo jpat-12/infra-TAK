@@ -45,7 +45,11 @@ Guard Dog is designed so that **a restart does not trigger another monitor to re
   Instead of `systemctl restart takserver` (which orphans Java processes on TAK's LSB init script), Guard Dog does: `stop → pkill -9 -u tak → rm -rf /opt/tak/work → start`. This kills orphan Java processes and clears the Ignite cache.
 
 - **Boot sequencer (staggered start)**  
-  When Guard Dog is deployed, it installs a systemd drop-in for `takserver.service` that runs a **boot sequencer** (`ExecStartPre`) before TAK starts. The sequencer waits for PostgreSQL to accept connections, then waits for Authentik Docker containers to be healthy (if installed). This prevents a CPU stampede where 5 TAK Java processes + Docker containers all compete for CPU simultaneously. Each wait has a 3-minute timeout so TAK always starts eventually.
+  When Guard Dog is deployed, it installs two systemd hooks that orchestrate the full boot sequence:
+  1. **Pre-start** (`tak-boot-sequencer.sh` as `ExecStartPre`): stops *all* non-essential services (Authentik, TAK Portal, CloudTAK, Node-RED, MediaMTX) and waits for PostgreSQL. Caddy is left running — it's lightweight and harmless.
+  2. **Post-start** (`tak-post-start.service`): waits for TAK Server to be listening on 8089 (up to 15 min), then starts services one at a time: Authentik (waits for healthy) → TAK Portal → CloudTAK → Node-RED → MediaMTX.
+
+  This prevents the CPU stampede where 5 TAK Java processes + Docker containers all compete for CPU simultaneously. Only services that are actually installed are stopped/started; everything else is skipped.
 
 - **TAK Server soft start**  
   The same systemd drop-in ensures TAK starts **after** `network-online.target` and `postgresql.service` (or `postgresql-15.service`). That prevents TAK Server from starting before the network or database are ready.
