@@ -6,27 +6,114 @@ Release Date: April 2026
 
 ## Highlights
 
-- **Guard Dog — boot-loop prevention.** Three new protections across all TAK-restarting Guard Dog scripts (`tak-8089-watch`, `tak-process-watch`, `tak-oom-watch`):
-  1. **Service-age grace (10 min):** Guard Dog now checks when TAK was *actually* started (by anyone — operator, systemd, or Guard Dog itself) using `systemctl show ActiveEnterTimestampMonotonic`. If TAK was started less than 10 minutes ago, Guard Dog backs off. Previously it only tracked its own restarts.
-  2. **Daily restart cap (3/day):** All TAK Guard Dog scripts share a single counter (`tak_restart_count_24h`). After 3 restarts in 24 hours, Guard Dog logs `SKIP … manual intervention required` and stops restarting. This prevents infinite restart loops from destroying the system.
-  3. **Clean restart procedure:** Instead of `systemctl restart takserver` (which orphans Java processes), Guard Dog now does: `stop → pkill -9 -u tak → rm -rf /opt/tak/work → start`. This kills orphan Java processes and clears the Ignite cache to prevent the `distributed-configuration` corruption loop.
+### Guard Dog — boot-loop prevention
 
-- **Boot sequencer (staggered start).** Full boot orchestration across the entire stack:
-  - **Pre-start** (`tak-boot-sequencer.sh`): stops Authentik, TAK Portal, CloudTAK, Node-RED, and MediaMTX before TAK starts, then waits for PostgreSQL. Caddy stays running (lightweight).
-  - **Post-start** (`tak-post-start.service`): waits for TAK 8089 to be listening (up to 15 min), then brings services back one at a time: Authentik (waits for healthy) → TAK Portal → CloudTAK → Node-RED → MediaMTX.
-  - Only services that are actually installed are touched; everything else is skipped.
-  - On a 12-core box running the full stack, this reduces boot load from 25+ to under 12 by giving TAK Server exclusive CPU during its heavy 5-7 min initialization.
+Three new protections across all TAK-restarting Guard Dog scripts (`tak-8089-watch`, `tak-process-watch`, `tak-oom-watch`):
 
-- **Timer delays increased.** Guard Dog timers for 8089, Process, and OOM now wait 20 minutes after boot before first check (was 3-10 min), giving the boot sequencer and TAK ample time to initialize.
+1. **Service-age grace (10 min):** Guard Dog checks when TAK was *actually* started (by anyone — operator, systemd, or Guard Dog itself) using `systemctl show ActiveEnterTimestampMonotonic`. If TAK was started less than 10 minutes ago, Guard Dog backs off.
+2. **Daily restart cap (3/day):** All TAK Guard Dog scripts share a single counter (`tak_restart_count_24h`). After 3 restarts in 24 hours, Guard Dog logs `SKIP … manual intervention required` and stops restarting.
+3. **Clean restart procedure:** Instead of `systemctl restart takserver` (which orphans Java processes), Guard Dog now does: `stop → pkill -9 -u tak → rm -rf /opt/tak/work → start`. This kills orphan Java processes and clears the Ignite cache.
 
-- **Root cause:** On test10, the old Guard Dog restarted TAK every 20 minutes for hours. Each restart orphaned Java processes (TAK's LSB init script doesn't kill children). This consumed all RAM, drove load to 33+, corrupted the Ignite cache, and made TAK unable to start — requiring a full VPS reboot to recover.
+### Boot sequencer — staggered startup from cold reboot
+
+Full boot orchestration across the entire stack. On reboot, services start in dependency order instead of all at once.
+
+**Pre-start** (`tak-boot-sequencer.sh`, runs as `ExecStartPre` on `takserver.service`):
+- Stops Authentik, TAK Portal, CloudTAK, Node-RED, and MediaMTX
+- Waits for PostgreSQL (`SELECT 1` returns success)
+- Caddy stays running (lightweight, needed for TLS)
+
+**Post-start** (`tak-post-start.service`, runs after `takserver.service`):
+- Waits for TAK Server port 8089 (up to 15 min)
+- If TAK config is ready but messaging crashed on cold boot, auto-restarts it
+- Then starts services one at a time, waiting for each to be healthy:
+
+```
+Power On
+  │
+  ├─ PostgreSQL (systemd default)
+  ├─ Caddy (stays running)
+  │
+  └─ tak-boot-sequencer.sh (pre-start)
+       stops: Authentik, TAK Portal, CloudTAK, Node-RED, MediaMTX
+       waits: PostgreSQL ready
+       │
+       └─ TAK Server starts (Java, ~60-90s)
+            │
+            └─ tak-post-start.service (oneshot)
+                 waits: port 8089 ready
+                 │
+                 ├─ Authentik (docker compose up -d)
+                 │    waits: server healthy
+                 │    waits: LDAP port 389 open
+                 │    (force-recreates LDAP if not responding after 120s)
+                 │
+                 ├─ TAK Portal (docker start)
+                 │
+                 ├─ CloudTAK (docker compose up -d)
+                 │
+                 ├─ Node-RED (docker compose up -d)
+                 │
+                 └─ MediaMTX (systemctl start)
+                      │
+                      └─ "Boot sequence complete — all services started"
+```
+
+Only services that are actually installed are touched; everything else is skipped.
+
+**Typical cold-boot timing** (measured on a 4-core VPS with SSD):
+
+| Service | Duration |
+|---------|----------|
+| TAK Server (Java startup) | ~70s |
+| Authentik + LDAP | ~2s (warm from Docker restart policy) |
+| TAK Portal | ~10s |
+| CloudTAK | ~11s |
+| Node-RED | ~11s |
+| MediaMTX | ~5s |
+| **Total: boot to all services running** | **~110s** |
+
+### Authentik deployment resilience
+
+Authentik deploy and LDAP verification are now robust against slow TLS provisioning and LDAP startup timing:
+
+1. **TLS cert readiness gate:** After Caddy reload, the deploy waits up to 300s for Caddy to provision a valid TLS certificate on the Authentik FQDN (`tak.<fqdn>`) before restarting the LDAP outpost. The LDAP outpost needs `AUTHENTIK_HOST: https://tak.<fqdn>` — if there's no valid cert yet, the outpost gets TLS errors and fails to authenticate users.
+
+2. **LDAP port 389 readiness gate:** After the final LDAP container restart, the deploy waits up to 180s for TCP port 389 to actually be listening before starting bind verification. Prevents wasting bind-check attempts while the container is still starting.
+
+3. **Improved LDAP bind verification:** Retry budget increased from 12 attempts / 5s delay (60s total) to 24 attempts / 10s delay (240s total). The log-parsing logic now prioritizes success markers (`authenticated`) over stale error markers from earlier in the log window, preventing false negatives.
+
+4. **Healthcheck `start_period` extended to 600s:** Authentik server and worker Docker healthchecks now allow 10 minutes for first-run database migrations before marking unhealthy. Prevents Docker from restarting containers during slow initial migrations on fresh installs.
+
+### Certificate password fix (custom cert password)
+
+When a custom certificate password was set in the console (instead of the default `atakatak`), the signing keystore (`{int_ca}-signing.jks`) and all other JKS files were still created with `atakatak` because `cert-metadata.sh` was never patched before running `makeRootCa.sh` / `makeCert.sh`. CoreConfig.xml was written with the custom password, creating a mismatch that broke certificate enrollment.
+
+**Fixed:** `cert-metadata.sh` is now patched with the custom password (`CAPASS` and `PASS` variables) before any cert generation — during initial TAK Server deploy and during CA rotation. The helper function also now patches the correct variable names that TAK Server's scripts actually use.
+
+**Who is affected:** Only deployments that set a custom certificate password. Deployments using the default `atakatak` were never affected.
+
+### Certificate password fix
+
+When a custom certificate password was set during TAK Server deploy, `cert-metadata.sh` was not patched before `makeRootCa.sh` / `makeCert.sh` ran. All JKS files (including the signing keystore) were created with the default `atakatak`, but CoreConfig.xml referenced the custom password — causing a mismatch that broke certificate enrollment.
+
+Additionally, the `_patch_cert_metadata_password` helper patched the wrong variable names (`CERT_PASS`, `PASSWORD`, etc.) instead of the actual TAK Server variables (`CAPASS`, `PASS`). Both issues are now fixed: cert-metadata.sh is patched before any cert generation, and the correct variable names are used. CA rotation also benefits from this fix.
+
+**Deployments using the default password (`atakatak`) were never affected.**
+
+### Timer delays increased
+
+Guard Dog timers for 8089, Process, and OOM now wait 20 minutes after boot before first check (was 3-10 min), giving the boot sequencer and TAK Server ample time to initialize.
 
 ---
 
 ## Required after you upgrade
 
 1. **Update Now** in the console (or `git pull origin main && sudo systemctl restart takwerx-console`).
-2. **Guard Dog → ↻ Update Guard Dog** to deploy the new scripts to `/opt/tak-guarddog/`.
+2. **Guard Dog → ↻ Update Guard Dog** — deploys the new boot sequencer, post-start orchestrator, and updated watch scripts to `/opt/tak-guarddog/`.
+3. **Authentik → Update Config & Reconnect** — patches docker-compose healthchecks (`start_period: 600s`) on existing installs. Only needed if Authentik is already deployed.
+
+Steps 2 and 3 are safe to run at any time. They do not restart TAK Server or cause downtime for Authentik.
 
 **Verify Guard Dog has the new protections:**
 
@@ -37,6 +124,61 @@ grep 'pkill.*tak' /opt/tak-guarddog/tak-8089-watch.sh
 ```
 
 All three should return matches.
+
+**Verify boot sequencer is installed:**
+
+```bash
+systemctl status tak-post-start
+cat /etc/systemd/system/takserver.service.d/soft-start.conf
+```
+
+The first should show the oneshot service (active or inactive depending on last boot). The second should show `ExecStartPre=-/opt/tak-guarddog/tak-boot-sequencer.sh`.
+
+**Verify Authentik healthchecks (if Authentik is deployed):**
+
+```bash
+grep start_period ~/authentik/docker-compose.yml
+```
+
+Should show `start_period: 600s` for server and worker.
+
+---
+
+## Checking boot order after a reboot
+
+After rebooting the VPS, check the full boot sequence with timestamps:
+
+```bash
+journalctl -u tak-post-start -b --no-pager
+```
+
+This shows every service start, every health gate, and the total time from power-on to "Boot sequence complete."
+
+---
+
+## VPS performance — disk I/O matters
+
+If deploys are slow, services time out on startup, or the boot sequencer takes much longer than the table above, your VPS may have poor disk I/O. Test before deploying:
+
+```bash
+# Write speed (sequential)
+dd if=/dev/zero of=/tmp/testfile bs=1M count=1024 oflag=dsync 2>&1 | tail -1
+
+# Read speed
+dd if=/tmp/testfile of=/dev/null bs=1M 2>&1 | tail -1
+
+# Clean up
+rm -f /tmp/testfile
+```
+
+| Write speed | Assessment |
+|-------------|------------|
+| **400+ MB/s** | Good — SSD-backed, full stack will deploy and boot quickly |
+| **200–400 MB/s** | Acceptable — deploys work, boot may be slightly slower |
+| **< 200 MB/s** | Poor — expect slow Docker builds, service timeouts, and longer boot |
+| **< 100 MB/s** | Bad — likely throttled or HDD-backed; migrate to a different VPS or provider node |
+
+Some providers place VPS instances on overloaded storage nodes. If your write speed is under 200 MB/s, contact your provider or migrate to a different node before troubleshooting service issues.
 
 ---
 
@@ -52,6 +194,16 @@ All three should return matches.
 | Guard Dog restart grace | Skip if Guard Dog restarted < 15 min ago | 900s |
 | Daily restart cap (NEW) | Max 3 restarts/day across all scripts, then stop | 3/day |
 | Clean restart (NEW) | stop → kill orphans → clear Ignite → start | — |
+| TLS cert gate (NEW) | Wait for valid TLS cert before LDAP outpost restart | 300s max |
+| LDAP port gate (NEW) | Wait for port 389 before bind verification | 180s max |
+
+---
+
+## Root cause (why this release exists)
+
+On test10, the old Guard Dog restarted TAK every 20 minutes for hours. Each restart orphaned Java processes (TAK's LSB init script doesn't kill children). This consumed all RAM, drove load to 33+, corrupted the Ignite cache, and made TAK unable to start. Separately, Authentik LDAP verification would false-negative when the TLS cert wasn't provisioned yet or port 389 wasn't listening, causing deploys to report failure even when everything was fine.
+
+After migrating to a VPS with decent disk I/O and applying these fixes, the full stack deploys cleanly and boots from cold reboot in under 2 minutes.
 
 ---
 
