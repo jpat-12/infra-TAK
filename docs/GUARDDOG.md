@@ -35,8 +35,24 @@ Guard Dog is designed so that **a restart does not trigger another monitor to re
 - **Restart lock**  
   Only one monitor can perform a restart at a time. Others see the lock and skip, so 8089 and Process (and OOM) never restart in parallel.
 
+- **Service-age grace (10 min)**  
+  Before restarting TAK, Guard Dog checks how long ago the TAK service was actually started (by anyone — operator, systemd, or Guard Dog) using `systemctl show ActiveEnterTimestampMonotonic`. If TAK was started less than 10 minutes ago, Guard Dog backs off. This covers operator restarts and reboots, not just Guard Dog's own restarts.
+
+- **Daily restart cap (3/day)**  
+  All TAK Guard Dog scripts share a single restart counter (`tak_restart_count_24h`). After 3 restarts in 24 hours, Guard Dog logs `SKIP … manual intervention required` and stops. Prevents infinite loops from destroying the system.
+
+- **Clean restart**  
+  Instead of `systemctl restart takserver` (which orphans Java processes on TAK's LSB init script), Guard Dog does: `stop → pkill -9 -u tak → rm -rf /opt/tak/work → start`. This kills orphan Java processes and clears the Ignite cache.
+
+- **Boot sequencer (staggered start)**  
+  When Guard Dog is deployed, it installs two systemd hooks that orchestrate the full boot sequence:
+  1. **Pre-start** (`tak-boot-sequencer.sh` as `ExecStartPre`): stops *all* non-essential services (Authentik, TAK Portal, CloudTAK, Node-RED, MediaMTX) and waits for PostgreSQL. Caddy is left running — it's lightweight and harmless.
+  2. **Post-start** (`tak-post-start.service`): waits for TAK Server to be listening on 8089 (up to 15 min), then starts services one at a time: Authentik (waits for healthy) → TAK Portal → CloudTAK → Node-RED → MediaMTX.
+
+  This prevents the CPU stampede where 5 TAK Java processes + Docker containers all compete for CPU simultaneously. Only services that are actually installed are stopped/started; everything else is skipped.
+
 - **TAK Server soft start**  
-  When Guard Dog is deployed, it installs a systemd drop-in for `takserver.service` so TAK Server starts **after** `network-online.target` and `postgresql.service` (or `postgresql-15.service`). That prevents TAK Server from starting before the network or database are ready, which can cause immediate failure and a restart loop on boot.
+  The same systemd drop-in ensures TAK starts **after** `network-online.target` and `postgresql.service` (or `postgresql-15.service`). That prevents TAK Server from starting before the network or database are ready.
 
 - **4GB swap**  
   On deploy, Guard Dog ensures a 4GB swap file exists at `/swapfile` (create if missing, enable and add to `/etc/fstab`). This matches the reference TAK Server Hardening script and helps memory stability under load (reduces OOM risk during spikes).
