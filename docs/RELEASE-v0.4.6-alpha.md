@@ -61,17 +61,14 @@ Power On
 
 Only services that are actually installed are touched; everything else is skipped.
 
-**Typical cold-boot timing** (measured on a 4-core VPS with SSD):
+**Typical cold-boot timing** (measured on a 12-core / 48 GB VPS, 316 MB/s disk I/O):
 
-| Service | Duration |
-|---------|----------|
-| TAK Server (Java startup) | ~70s |
-| Authentik + LDAP | ~2s (warm from Docker restart policy) |
-| TAK Portal | ~10s |
-| CloudTAK | ~11s |
-| Node-RED | ~11s |
-| MediaMTX | ~5s |
-| **Total: boot to all services running** | **~110s** |
+| Phase | Duration |
+|-------|----------|
+| Pre-start (stop Docker, wait PostgreSQL) | ~15s |
+| TAK Server start | ~9s |
+| Post-start (Authentik, TAK Portal, CloudTAK, Node-RED) | ~90s |
+| **Total: boot to full stack healthy** | **~2 min 15s** |
 
 ### Authentik deployment resilience
 
@@ -85,21 +82,46 @@ Authentik deploy and LDAP verification are now robust against slow TLS provision
 
 4. **Healthcheck `start_period` extended to 600s:** Authentik server and worker Docker healthchecks now allow 10 minutes for first-run database migrations before marking unhealthy. Prevents Docker from restarting containers during slow initial migrations on fresh installs.
 
-### Certificate password fix (custom cert password)
+### Certificate password fix (two-part)
 
-When a custom certificate password was set in the console (instead of the default `atakatak`), the signing keystore (`{int_ca}-signing.jks`) and all other JKS files were still created with `atakatak` because `cert-metadata.sh` was never patched before running `makeRootCa.sh` / `makeCert.sh`. CoreConfig.xml was written with the custom password, creating a mismatch that broke certificate enrollment.
+**Part 1 — JKS files created with wrong password:**
+When a custom certificate password was set in the console (instead of the default `atakatak`), `cert-metadata.sh` was never patched before running `makeRootCa.sh` / `makeCert.sh`. All JKS files were created with the default `atakatak`. The helper function also patched wrong variable names (`CERT_PASS`, `PASSWORD`) instead of the actual TAK Server variables (`CAPASS`, `PASS`).
 
-**Fixed:** `cert-metadata.sh` is now patched with the custom password (`CAPASS` and `PASS` variables) before any cert generation — during initial TAK Server deploy and during CA rotation. The helper function also now patches the correct variable names that TAK Server's scripts actually use.
+**Fixed:** `cert-metadata.sh` is now patched with the custom password before any cert generation — during initial TAK Server deploy and during CA rotation.
+
+**Part 2 — CoreConfig.xml `<tls>` elements retained default password:**
+Even after Part 1, the `<tls>` elements in CoreConfig.xml (main TLS and federation TLS) still had `keystorePass="atakatak"` and `truststorePass="atakatak"`. TAK Server opened the keystore with the wrong password, couldn't extract the RSA public key for JWT signing, and crashed with `NullPointerException: "pub" is null` at `ServerConfiguration.jwkSource`.
+
+**Fixed:** New `_patch_coreconfig_passwords` helper reads CoreConfig.xml and ensures every `keystorePass` and `truststorePass` attribute matches the configured password. Runs during initial deploy, intermediate CA rotation, and root CA rotation.
 
 **Who is affected:** Only deployments that set a custom certificate password. Deployments using the default `atakatak` were never affected.
 
-### Certificate password fix
+### TAK Portal — SSH auto-configuration
 
-When a custom certificate password was set during TAK Server deploy, `cert-metadata.sh` was not patched before `makeRootCa.sh` / `makeCert.sh` ran. All JKS files (including the signing keystore) were created with the default `atakatak`, but CoreConfig.xml referenced the custom password — causing a mismatch that broke certificate enrollment.
+TAK Portal's new SSH feature (connecting back to the host TAK Server) is now auto-configured on deploy with zero manual steps:
 
-Additionally, the `_patch_cert_metadata_password` helper patched the wrong variable names (`CERT_PASS`, `PASSWORD`, etc.) instead of the actual TAK Server variables (`CAPASS`, `PASS`). Both issues are now fixed: cert-metadata.sh is patched before any cert generation, and the correct variable names are used. CA rotation also benefits from this fix.
+1. Generates an ed25519 keypair at `~/TAK-Portal/data/ssh/tak_ssh_ed25519`
+2. Adds the public key to the host's `~/.ssh/authorized_keys`
+3. Copies the keypair into the TAK Portal container
+4. Populates `TAK_SSH_HOST`, `TAK_SSH_PORT`, `TAK_SSH_USER`, key paths, and marks `TAK_SSH_ONBOARDED: true`
 
-**Deployments using the default password (`atakatak`) were never affected.**
+**Same-box only:** Auto-config runs when `/opt/tak` exists (TAK Server on the same host). For remote TAK Server deployments, SSH must be configured manually in TAK Portal's settings UI.
+
+**Existing users:** Click **Update Config** on the TAK Portal page in the console — SSH will be set up automatically.
+
+**On deploy, reconfigure, and update:** The setup is idempotent; it skips if the keypair already exists and is installed.
+
+### VPS disk I/O check in installer
+
+`start.sh` now runs a 256 MB sequential write test on first boot and prints a colored assessment:
+
+| Write speed | Assessment |
+|-------------|------------|
+| **400+ MB/s** | Excellent |
+| **200–400 MB/s** | Acceptable |
+| **< 200 MB/s** | Slow — contact your provider |
+
+Helps catch slow/overloaded VPS storage nodes before deploying. The test runs once during initial install and does not block subsequent starts.
 
 ### Timer delays increased
 
@@ -112,8 +134,9 @@ Guard Dog timers for 8089, Process, and OOM now wait 20 minutes after boot befor
 1. **Update Now** in the console (or `git pull origin main && sudo systemctl restart takwerx-console`).
 2. **Guard Dog → ↻ Update Guard Dog** — deploys the new boot sequencer, post-start orchestrator, and updated watch scripts to `/opt/tak-guarddog/`.
 3. **Authentik → Update Config & Reconnect** — patches docker-compose healthchecks (`start_period: 600s`) on existing installs. Only needed if Authentik is already deployed.
+4. **TAK Portal → Update Config** — generates SSH keypair, installs it on the host, and auto-configures TAK Portal's SSH settings. Only needed if TAK Portal is already deployed.
 
-Steps 2 and 3 are safe to run at any time. They do not restart TAK Server or cause downtime for Authentik.
+Steps 2–4 are safe to run at any time. They do not restart TAK Server or cause downtime.
 
 **Verify Guard Dog has the new protections:**
 
@@ -142,6 +165,22 @@ grep start_period ~/authentik/docker-compose.yml
 
 Should show `start_period: 600s` for server and worker.
 
+**Verify TAK Portal SSH (if TAK Portal is deployed):**
+
+```bash
+docker exec tak-portal cat /usr/src/app/data/settings.json 2>/dev/null | grep -i ssh
+```
+
+Should show `TAK_SSH_HOST` populated, `TAK_SSH_ONBOARDED: true`, and key paths pointing to `data/ssh/tak_ssh_ed25519`.
+
+**Verify certificate passwords (if using a custom cert password):**
+
+```bash
+grep -oP 'keystorePass="\K[^"]+' /opt/tak/CoreConfig.xml | sort -u
+```
+
+Should show a single value (your custom password), not `atakatak`.
+
 ---
 
 ## Checking boot order after a reboot
@@ -149,10 +188,16 @@ Should show `start_period: 600s` for server and worker.
 After rebooting the VPS, check the full boot sequence with timestamps:
 
 ```bash
-journalctl -u tak-post-start -b --no-pager
+journalctl -u takserver -b --no-pager | grep -E 'boot-sequencer|PostgreSQL|post-start'
 ```
 
-This shows every service start, every health gate, and the total time from power-on to "Boot sequence complete."
+This shows every service start, every health gate, and the total time from power-on to completion. Docker container status:
+
+```bash
+docker ps --format "table {{.Names}}\t{{.Status}}"
+```
+
+All containers should show "healthy" within ~2–3 minutes of boot.
 
 ---
 
@@ -180,6 +225,8 @@ rm -f /tmp/testfile
 
 Some providers place VPS instances on overloaded storage nodes. If your write speed is under 200 MB/s, contact your provider or migrate to a different node before troubleshooting service issues.
 
+The installer (`start.sh`) now runs this check automatically on first boot and prints a colored assessment.
+
 ---
 
 ## Protection layers (all TAK Guard Dog scripts)
@@ -203,7 +250,7 @@ Some providers place VPS instances on overloaded storage nodes. If your write sp
 
 On test10, the old Guard Dog restarted TAK every 20 minutes for hours. Each restart orphaned Java processes (TAK's LSB init script doesn't kill children). This consumed all RAM, drove load to 33+, corrupted the Ignite cache, and made TAK unable to start. Separately, Authentik LDAP verification would false-negative when the TLS cert wasn't provisioned yet or port 389 wasn't listening, causing deploys to report failure even when everything was fine.
 
-After migrating to a VPS with decent disk I/O and applying these fixes, the full stack deploys cleanly and boots from cold reboot in under 2 minutes.
+After migrating to a VPS with decent disk I/O and applying these fixes, the full stack deploys cleanly and boots from cold reboot in under 2.5 minutes.
 
 ---
 

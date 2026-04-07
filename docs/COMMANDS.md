@@ -750,7 +750,7 @@ git checkout dev -- \
   scripts/guarddog/ \
   README.md \
   docs/COMMANDS.md \
-  docs/RELEASE-v0.4.5-alpha.md \
+  docs/RELEASE-v0.4.6-alpha.md \
   docs/TESTING-UPDATES.md \
   docs/GUARDDOG.md \
   docs/DISK-AND-LOGS.md \
