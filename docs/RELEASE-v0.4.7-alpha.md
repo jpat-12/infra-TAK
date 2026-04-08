@@ -12,14 +12,18 @@ When infra-TAK updates to a new version, **all module configs are automatically 
 
 - Detects version change on startup
 - Waits 10 seconds for the console to stabilize
-- Re-deploys Guard Dog (updated scripts, timers, and config)
+- Re-deploys Guard Dog first (updated scripts, timers, and config)
+- Then runs Authentik, TAK Portal, and CloudTAK **in parallel** so a slow Authentik reconfigure doesn't block the others
 - Re-runs Authentik reconfigure (LDAP/forward-auth sync)
 - Re-pushes TAK Portal settings and restarts the container
   - SSH auto-config only runs when TAK Server is on the same box (`/opt/tak` exists)
   - Remote TAK Server deployments: settings are pushed but SSH is left to manual config
 - Regenerates CloudTAK `docker-compose.override.yml` and restarts containers (picks up env var fixes)
   - Works for both local and remote CloudTAK deployments
+- Console cards show **"Updating config..."** with a cyan spinner while each service is being reconfigured, then revert to Running/Healthy when done
 - Manual buttons remain available as fallback
+
+> **Note:** Authentik will be unavailable for approximately 3–5 minutes during the reconfigure. Services behind Authentik (TAK Portal login, console via domain) may be unreachable during this time. Use the IP:5001 backdoor if you need console access while the update is running.
 
 ### Online database repack (pg_repack)
 
@@ -101,7 +105,9 @@ The TAK Server "Update config" button was renamed to **"Patch CoreConfig"** with
 
 ## Update instructions
 
-From the infra-TAK console: **Update Now** button. Everything is automatic — Guard Dog, Authentik, TAK Portal, and CloudTAK configs will be updated after the console restarts. No manual steps required.
+From the infra-TAK console: **Update Now** button. Everything is automatic — Guard Dog, Authentik, TAK Portal, and CloudTAK configs will be updated after the console restarts. No manual steps required. Service cards on the console will show "Updating config..." while each module is being reconfigured.
+
+**Expect ~3–5 minutes of Authentik downtime** while it reconfigures. If you need console access during the update, use `https://<server-ip>:5001` (bypasses Authentik).
 
 For servers where Guard Dog shows stale remote DB config after a prior migration, the startup sync will correct it automatically on this update.
 
