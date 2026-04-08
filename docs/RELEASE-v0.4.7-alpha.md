@@ -86,6 +86,23 @@ Flagged by CloudTAK developer Nick Ingalls as a security flaw. The setting was l
 
 The fix is applied automatically on upgrade via the new auto-deploy (CloudTAK override is regenerated and containers restarted).
 
+### Boot sequencer — two-server PostgreSQL fix
+
+`tak-boot-sequencer.sh` (the `ExecStartPre` script for TAK Server) previously tried to connect to a local PostgreSQL via `sudo -u postgres psql` on every boot — including two-server setups where the database lives on a remote host. This caused a **2-minute hang** on every TAK Server start while the local check timed out.
+
+Now the script detects the setup type:
+- **Local PostgreSQL** — uses `psql -c "SELECT 1"` (same as before, instant)
+- **Two-server (remote DB)** — reads the DB host from `guarddog.conf` or `CoreConfig.xml` and checks via `nc -z` TCP probe on port 5432 (completes in under 1 second)
+- **No DB configured** — skips the wait entirely
+
+### Zero-disruption auto-deploy
+
+Fixed a bug where the Authentik auto-reconfigure triggered an unnecessary TAK Server restart, which cascaded through the boot sequencer and stopped all other services (TAK Portal, CloudTAK, Node-RED, MediaMTX).
+
+**Root cause:** The post-reconfigure Caddy sync called `install_le_cert_on_8446()`, which stops TAK Server, patches CoreConfig, and restarts it. The 8446 LE cert doesn't change during a reconfigure — only a Caddy reload is needed. The function now only regenerates the Caddyfile and reloads Caddy.
+
+**Result:** Auto-deploy completes in ~2 minutes. Only Authentik cycles (3–5 min for container restart). TAK Server and all other services stay running throughout.
+
 ### UI: "Patch CoreConfig" rename
 
 The TAK Server "Update config" button was renamed to **"Patch CoreConfig"** with a tooltip explaining its purpose, to avoid confusion with the module-level "Update config" buttons.
@@ -107,7 +124,7 @@ The TAK Server "Update config" button was renamed to **"Patch CoreConfig"** with
 
 From the infra-TAK console: **Update Now** button. Everything is automatic — Guard Dog, Authentik, TAK Portal, and CloudTAK configs will be updated after the console restarts. No manual steps required. Service cards on the console will show "Updating config..." while each module is being reconfigured.
 
-**Expect ~3–5 minutes of Authentik downtime** while it reconfigures. If you need console access during the update, use `https://<server-ip>:5001` (bypasses Authentik).
+**Expect ~2–5 minutes of Authentik downtime** while it reconfigures (typically ~2 min). TAK Server and other services stay running. If you need console access during the update, use `https://<server-ip>:5001` (bypasses Authentik).
 
 For servers where Guard Dog shows stale remote DB config after a prior migration, the startup sync will correct it automatically on this update.
 
