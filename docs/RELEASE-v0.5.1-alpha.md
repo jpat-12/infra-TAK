@@ -4,17 +4,17 @@ Release Date: April 2026
 
 ---
 
-## Federation Hub — MongoDB AVX fallback
+## Federation Hub (target host) — MongoDB AVX fallback
 
 ### The problem
 
-MongoDB 5.0 and later require **AVX CPU instructions**. Many hosting environments lack AVX support:
+When deploying Federation Hub to a **target host** (LXC, VM, or remote VPS), the installer needs MongoDB. MongoDB 5.0 and later require **AVX CPU instructions**, which many target environments lack:
 
-- **LXC containers** — host CPU flags are not passed through
+- **LXC containers** — host CPU flags are not passed through to the guest
 - **Budget VPS providers** — older CPU generations (pre-Sandy Bridge)
 - **Some VM hypervisors** — AVX not exposed to guests
 
-The Federation Hub deploy installed MongoDB 8.0 unconditionally. On non-AVX systems, `mongod` crashes immediately on startup, failing the entire deployment.
+The Federation Hub deploy installed MongoDB 8.0 unconditionally on the target. On non-AVX targets, `mongod` crashes immediately on startup, failing the entire deployment.
 
 ### The fix
 
