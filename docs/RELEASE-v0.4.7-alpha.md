@@ -6,9 +6,9 @@ Release Date: April 2026
 
 ## Highlights
 
-### Auto-deploy Guard Dog + Authentik + TAK Portal on update
+### Auto-deploy everything on update
 
-When infra-TAK updates to a new version, Guard Dog scripts, Authentik configuration, and TAK Portal settings are now **automatically re-deployed** in the background. No more manually pressing "Update Guard Dog", "Reconfigure Authentik", and "Update config" after every console update.
+When infra-TAK updates to a new version, **all module configs are automatically re-deployed** in the background. No more manually pressing buttons after console updates.
 
 - Detects version change on startup
 - Waits 10 seconds for the console to stabilize
@@ -17,6 +17,8 @@ When infra-TAK updates to a new version, Guard Dog scripts, Authentik configurat
 - Re-pushes TAK Portal settings and restarts the container
   - SSH auto-config only runs when TAK Server is on the same box (`/opt/tak` exists)
   - Remote TAK Server deployments: settings are pushed but SSH is left to manual config
+- Regenerates CloudTAK `docker-compose.override.yml` and restarts containers (picks up env var fixes)
+  - Works for both local and remote CloudTAK deployments
 - Manual buttons remain available as fallback
 
 ### Online database repack (pg_repack)
@@ -51,6 +53,39 @@ Now correctly returns red when the remote database server cannot be reached.
 
 Previously, if the database was migrated to a new host, `guarddog.conf` could retain the old IP, causing vacuum, CoT DB size monitoring, and the new repack script to fail silently.
 
+### Guard Dog — TAK Portal monitor
+
+New container health monitor for TAK Portal, same pattern as Authentik/Node-RED/CloudTAK:
+
+- Checks `tak-portal` container status every 1 minute
+- Alerts and auto-restarts after 3 consecutive failures
+- 15-minute boot grace period and restart cooldown to avoid loops
+- Shows as a row in the Guard Dog Monitors section with a green/red health dot
+
+Previously TAK Portal had no health monitor — if the container crashed, nobody knew until a user noticed.
+
+### Guard Dog — smart "Update" button
+
+The Guard Dog UI now shows whether the deployed config is current:
+
+- **"✓ up to date (v0.4.7-alpha)"** — green indicator when Guard Dog version and settings match what's deployed
+- **"⚠ settings changed — update needed"** — yellow warning when alert email or server nickname changed since last deploy
+- **"↻ Update Guard Dog" button** only appears when there's a mismatch — hidden when everything is current
+
+Deployed version, email, and nickname are stamped in `settings.json` on every deploy (full, update, or auto-deploy). Existing installs get stamped automatically on first startup at this version.
+
+### CloudTAK security fix
+
+Removed `NODE_TLS_REJECT_UNAUTHORIZED=0` from CloudTAK's `.env` and `docker-compose.override.yml`. This environment variable disabled **all** TLS certificate verification in Node.js — not just for TAK Server connections, but for every HTTPS request the process made.
+
+Flagged by CloudTAK developer Nick Ingalls as a security flaw. The setting was leftover from an abandoned automatic bootstrap feature and is not needed — users upload the admin P12 manually through CloudTAK's UI.
+
+The fix is applied automatically on upgrade via the new auto-deploy (CloudTAK override is regenerated and containers restarted).
+
+### UI: "Patch CoreConfig" rename
+
+The TAK Server "Update config" button was renamed to **"Patch CoreConfig"** with a tooltip explaining its purpose, to avoid confusion with the module-level "Update config" buttons.
+
 ---
 
 ## Schedule summary (database maintenance)
@@ -66,6 +101,19 @@ Previously, if the database was migrated to a new host, `guarddog.conf` could re
 
 ## Update instructions
 
-From the infra-TAK console: **Update Now** button. Guard Dog and Authentik configuration will be automatically updated after the console restarts — no manual steps required.
+From the infra-TAK console: **Update Now** button. Everything is automatic — Guard Dog, Authentik, TAK Portal, and CloudTAK configs will be updated after the console restarts. No manual steps required.
 
 For servers where Guard Dog shows stale remote DB config after a prior migration, the startup sync will correct it automatically on this update.
+
+---
+
+## Everything else in this train
+
+Same as **v0.4.6** (boot sequencer, Authentik resilience, cert password fix, TAK Portal SSH auto-config). Prior: [v0.4.6-alpha](RELEASE-v0.4.6-alpha.md), [v0.4.5-alpha](RELEASE-v0.4.5-alpha.md), [v0.4.4-alpha](RELEASE-v0.4.4-alpha.md), [v0.4.3-alpha](RELEASE-v0.4.3-alpha.md), [v0.4.2-alpha](RELEASE-v0.4.2-alpha.md).
+
+---
+
+## Release checklist (maintainer)
+
+- [ ] `app.py` → `VERSION = "0.4.7-alpha"` matches tag **`v0.4.7-alpha`**.
+- [ ] Tag **`v0.4.7-alpha`** and push after `main` push.
