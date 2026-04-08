@@ -752,6 +752,7 @@ git checkout dev -- \
   docs/COMMANDS.md \
   docs/RELEASE-v0.4.7-alpha.md \
   docs/RELEASE-v0.4.8-alpha.md \
+  docs/RELEASE-v0.4.9-alpha.md \
   docs/TESTING-UPDATES.md \
   docs/GUARDDOG.md \
   docs/DISK-AND-LOGS.md \
@@ -769,7 +770,7 @@ git checkout dev -- \
 git add -A && git status
 python3 - <<'PY'
 import re, sys
-tag = "v0.4.8-alpha"  # change each release
+tag = "v0.4.9-alpha"  # change each release
 want = tag.lstrip("v")
 app = open("app.py", encoding="utf-8").read()
 m = re.search(r'^VERSION\s*=\s*"([^"]+)"', app, re.M)
@@ -782,9 +783,9 @@ if got != want:
     sys.exit(1)
 print(f"OK: app.py VERSION matches tag ({tag})")
 PY
-git commit -m "v0.4.8-alpha"
+git commit -m "v0.4.9-alpha"
 git push origin main
-git tag v0.4.8-alpha && git push origin v0.4.8-alpha
+git tag v0.4.9-alpha && git push origin v0.4.9-alpha
 git checkout dev
 ```
 
