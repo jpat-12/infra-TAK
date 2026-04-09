@@ -20,7 +20,7 @@ Install and configure Federation Hub using the **TAK.gov** guide (Ubuntu .deb pa
    4. **Patch config** — `federation-hub-ui.yml` and `federation-hub-broker.yml` get the actual truststore/keystore names (from intermediate CA and hostname).
    5. **Start** — `chown -R tak:tak`, `systemctl enable/restart federation-hub`, wait for `"Started FederationHubUIServer"` in UI log.
    6. **Register admin cert** — `federation-hub-manager.jar` + copy `webadmin-fed.p12` to `/root/`.
-   7. **Firewall** — UFW allow `22/tcp`, `8080/tcp`, and `9100-9103/tcp` on the target host.
+   7. **Firewall** — UFW on the target: `22/tcp`; **8080** and **9100** (web UI) **only from the infra-TAK console’s public IP** when **Settings → Server IP** is set (same host that runs Caddy — so users use `https://fedhub.<fqdn>`, not raw `http://IP:8080`). If Server IP is missing, deploy falls back to opening 8080/9100 publicly (**insecure** — set Server IP and re-run **Update Federation Hub**). **9101-9103** stay open to the internet for **federation peers** (not proxied by Caddy).
    8. Console registration updated.
 5. Use **Restart / Start / Stop** for remote `systemctl` (requires passwordless `sudo` for that user, like other remote modules).
 
@@ -67,11 +67,14 @@ Same idea as **Update TAK Server**: open **Update Federation Hub** on `/federati
 
 | Port | Purpose |
 |------|---------|
-| 9100 | Federation Hub web UI (HTTPS, client cert) |
-| 9101 | Federation V1 |
-| 9102 | Federation V2 (default) |
-| 9103 | Token Federation (optional) |
+| 8080 | Web UI (HTTP — OAuth path; **should only be reachable from your Caddy/console IP**, not the open internet) |
+| 9100 | Web UI (HTTPS, client cert — same: **scope to Caddy host** via UFW when Server IP is set) |
+| 9101 | Federation V1 (**must** be reachable by peer TAK servers) |
+| 9102 | Federation V2 (default) (**public**) |
+| 9103 | Token Federation (optional) (**public**) |
 | 8446 | OAuth/OIDC login (when Authentik SSO enabled) |
+
+**Why not lock 9101-9103 to localhost?** Those ports are for **other organizations’ TAK Servers** connecting to your hub — they are not browser traffic and cannot go through Authentik at the edge the same way. **8080/9100** are the ones users were never meant to hit by raw IP; use **`https://fedhub.<FQDN>`** (Caddy + Authentik `forward_auth`).
 
 ## Future work
 
