@@ -85,6 +85,8 @@ Stable **UID** must be **deterministic** (e.g. `prefix + feature id` or hash of 
 
 ### 2026-02-06 — recovered plan (paste from prior chat; canonical example layer)
 
+**Product intent (Node-RED tab):** Help the user **identify the slice of data they want from an ArcGIS URL** without manually opening raw GET responses, walking nested JSON, or guessing array indices. The tab is **discovery + filter definition + export** so building downstream flows (CoT, DataSync, mission) starts from a **known-good query**, not trial-and-error. *First concrete feed to ship against:* **airborne intel** — i.e. the CA perimeters layer filtered to **FIRIS** + **CAL FIRE INTEL FLIGHT DATA**, **72h** on `poly_DateCurrent`, **`mission`** as UID (see table below).
+
 **Goal:** Lower the bar from “navigate ArcGIS REST and attribute tables” to **paste Feature Service URL → discover fields/values in-tool → build filter → export config** for the engine.
 
 **Example layer (screenshot / attribute table):** *CA Perimeters CAL FIRE NIFC FIRIS public view* (~467 records in sample). Key fields:
