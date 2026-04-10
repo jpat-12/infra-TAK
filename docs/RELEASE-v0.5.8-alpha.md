@@ -41,16 +41,18 @@ Then retry the integration creation in TAK Portal.
 
 ---
 
-## Node-RED: ArcGIS → TAK reconciliation engine
+## Node-RED: ArcGIS → TAK reconciliation engine (new)
 
-New "ArcGIS → TAK Engine" flow tab (disabled by default) that replaces the old dual-flow pattern (poll + separate cleanup) with a single reconciliation loop:
+New "ArcGIS → TAK Engine" flow tab (disabled by default). This is the first release of the sync engine — no prior version existed. It provides a single reconciliation loop for pushing ArcGIS Feature Service data into TAK missions via DataSync:
 
 - **Poll timer** → load saved configs → query ArcGIS Feature Service (with WHERE + time filter)
 - **Build CoT JSON** compatible with `node-red-contrib-tak` (polygons with links, points, styling, remarks)
 - **Reconcile** against TAK mission contents → PUT new UIDs / DELETE stale UIDs via Mission API
-- **TAK Server Settings** panel in the configurator (server URL, API port, streaming port, creator UID)
-- **Mission name** field per config (Step 5)
+- **TAK Server Settings** panel added to the configurator (server URL, API port, streaming port, creator UID)
+- **Mission name** field added per config in Step 5
 - **TLS config** placeholder — upload certs in the Node-RED editor before enabling
+
+The engine tab ships disabled. To activate: configure TAK Server Settings in the configurator, add a mission name to your config, upload TLS certs in the Node-RED editor, wire the CoT output to a TAK node + tcp out, then enable the tab and deploy.
 
 ---
 
