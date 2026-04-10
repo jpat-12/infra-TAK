@@ -30,14 +30,7 @@ All five code paths that touch `cert-metadata.sh` now restore `tak:tak` ownershi
 - Root CA rotation (Step 2/8)
 - TAK Portal integration cert creation
 
-**Existing affected servers:** run this once to fix immediately:
-
-```bash
-chown tak:tak /opt/tak/certs/cert-metadata.sh
-chmod 500 /opt/tak/certs/cert-metadata.sh
-```
-
-Then retry the integration creation in TAK Portal.
+Existing affected servers are fixed automatically on console startup after updating to v0.5.8.
 
 ---
 
