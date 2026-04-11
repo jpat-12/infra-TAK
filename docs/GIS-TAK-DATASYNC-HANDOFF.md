@@ -103,6 +103,33 @@ Configurator and engine were originally on **separate tabs** in Node-RED. `flow.
 
 Every `docker cp nodered/flows.json nodered:/data/flows.json` replaces the flow file — including the `tls_tak` node which ships with **empty** cert/key fields (secrets aren't committed). After each deploy you must **re-upload certs** in the Node-RED editor or use **"local file paths"** mode pointing to a mounted volume that persists across deploys.
 
+### 9. `node-red-contrib-tak` encode node does not reliably deliver CoT via TCP
+
+The `eng_tak` (CoT encode) → `eng_tcp_out` path showed "connected" and no errors, but TAK Server never stored the CoT. After hours of debugging, replaced with a **custom JSON-to-XML function node** (`eng_cot_to_xml`) that builds the XML string manually and sends it as a `Buffer` directly to `eng_tcp_out`. This approach works reliably.
+
+### 10. `StrictUidMissionMemebershipFilter` blocks CoT with `<Marti>` tags
+
+CoT events containing `<Marti><dest mission="..."/></Marti>` trigger TAK Server's `StrictUidMissionMemebershipFilter`. If the TCP connection's sender isn't identified as a mission member, the event is silently dropped with: `Illegal attempt to send mission event outside of a mission context`. **Fix**: removed the `<Marti>` tag from streamed CoT. The DataSync PUT (via HTTPS 8443) handles mission association separately.
+
+### 11. SA identification message needed for TCP connection identity
+
+When ATAK connects via TLS to port 8089, it sends a self-identification CoT (`a-f-G-U-C`) as the first message. TAK Server uses this to associate the connection with a UID (visible as `Set client for subscription: tls:XX to CALLSIGN`). Node-RED's TCP connection was anonymous — TAK Server knew it as `tls:XX` from an IP but had no UID. Added `eng_sa_inject` → `eng_sa_build` that sends an SA CoT with `uid=creatorUid` on startup and every 10 minutes.
+
+### 12. TAK Server does not overwrite stored CoT via TCP streaming alone
+
+Sending a new CoT event with the same UID over the TCP stream did **not** update the stored version on TAK Server. The `/Marti/api/cot/xml/<uid>` endpoint continued returning the old event. The only reliable way to update stored CoT was to **DELETE the UID from the mission**, then re-stream + re-PUT. New features coming in from ArcGIS (not yet in mission) get fresh CoT from the start.
+
+### 13. `POST /Marti/api/cot` does not exist on TAK Server 5.5
+
+Attempted to POST CoT XML directly via HTTPS as a fallback for the TCP stream. TAK Server returned an HTML page (404-equivalent). There is no HTTP endpoint for submitting CoT on this version — TCP streaming on port 8089 is the only ingest path.
+
+### 14. Docker networking for Node-RED → TAK Server (host)
+
+TAK Server runs natively on the host, not in Docker. Node-RED runs in Docker. For the TCP stream to reach port 8089 on the host:
+- `docker-compose.yml` needs `extra_hosts: ["host.docker.internal:host-gateway"]`
+- `eng_tcp_out` host = `host.docker.internal`, port = `8089`
+- Cert volume mount: `/opt/tak/certs/files:/certs:ro` (plus `chmod 644` on `.key` files for container read access)
+
 ### Summary: DataSync API patterns that work
 
 ```
@@ -146,34 +173,39 @@ Full-featured 5-step wizard:
 - `POST /api/tak-settings/save` — save TAK server connection settings
 - `GET /api/tak-settings/load` — load TAK server connection settings
 
-### Slice 2: Engine flow ⚠️ (nodes built — wiring bug, not yet functional)
+### Slice 2: Engine flow ✅ (fully wired, reconciliation + streaming working)
 
-**Flow tab:** "ArcGIS → TAK Engine" (disabled by default in `flows.json`)
+**Flow tab:** "ArcGIS → TAK" (shared tab with configurator for flow context)
 
-**⚠️ WIRING BUG (discovered 2026-04-10):** The reconciliation path (`eng_build_m → eng_http_m → eng_reconcile`) is fully coded but **orphaned** — no node wires into `eng_build_m`. The only active path goes through `eng_add_mission_simple` which blindly PUTs every UID every poll with no deduplication or deletion. See maintainer log entry for 2026-04-10 for the fix plan.
-
-**Active path (broken — add-only, no dedupe):**
-1. **`eng_inject`** → **`eng_load`** → **`eng_build_q`** → **`eng_http_ag`** → **`eng_parse`** → **`eng_build_sub`** → **`eng_http_sub`** → **`eng_add_mission_simple`** (PUTs every UID every poll)
-
-**Orphaned path (correct reconciliation logic — needs wiring):**
-- **`eng_build_m`** → **`eng_http_m`** → **`eng_reconcile`** (diff: PUT new, DELETE stale) → **`eng_delay_put`** / **`eng_delay_del`** → **`eng_http_action`**
+**Active path (working as of 2026-04-11):**
+```
+eng_sa_inject → eng_sa_build → eng_cot_to_xml → eng_tcp_out  (SA ident on startup)
+eng_inject → eng_load → eng_build_q → eng_http_ag → eng_parse
+  ├→ eng_build_sub → eng_http_sub (subscribe to mission)
+  └→ eng_build_m → eng_http_m → eng_reconcile
+       ├→ Port 0: ALL features streamed (eng_cot_to_xml → eng_tcp_out)
+       │          + eng_delay_put → eng_build_put → eng_http_action (PUT new only)
+       └→ Port 1: Stale UIDs (eng_delay_del → eng_http_action DELETE)
+```
 
 **Node inventory:**
+- **`eng_sa_inject`** — fires 10s after deploy, repeats every 10 min; sends SA identification CoT
+- **`eng_sa_build`** — builds SA CoT event with `uid=creatorUid` to identify the TCP connection to TAK Server
 - **`eng_inject`** — timer, every 5 minutes (+ once at 30s after deploy)
 - **`eng_load`** — loads saved ArcGIS configs + TAK settings from flow context; skips configs without `missionName`
-- **`eng_build_q`** — builds ArcGIS query URL with `WHERE` clause + dynamic time filter (now − TTL hours)
+- **`eng_build_q`** — builds ArcGIS query URL with `WHERE` clause + dynamic time filter using `DATE 'YYYY-MM-DD'` format + `outSR=4326`
 - **`eng_http_ag`** — HTTP GET to ArcGIS Feature Service
-- **`eng_parse`** — transforms ArcGIS features → CoT JSON array (deterministic UID, ARGB color, polygon rings → `link` elements, remarks, styling). Currently only processes first ring (`g.rings[0]`).
+- **`eng_parse`** — transforms ArcGIS features → CoT JSON array (deterministic UID, ARGB color, polygon rings → `link` elements, PST-formatted date remarks, rounded decimal numbers). Currently only processes first ring (`g.rings[0]`).
 - **`eng_build_sub`** — builds `PUT .../subscription?uid=<creatorUid>` URL
 - **`eng_http_sub`** — fires mission subscription (TLS via `tls_tak`)
-- **`eng_add_mission_simple`** — ❌ TO BE REMOVED — competing add-only path
 - **`eng_build_m`** — builds `GET .../missions/<name>` URL for mission contents
 - **`eng_http_m`** — fetches existing mission contents (TLS via `tls_tak`)
-- **`eng_reconcile`** — diffs ArcGIS UIDs vs mission UIDs: Port 0 = new (CoT + PUT metadata), Port 1 = stale (DELETE)
+- **`eng_reconcile`** — diffs ArcGIS UIDs vs mission UIDs. Streams CoT for ALL features every poll (keeps TAK Server cache fresh). Only sends DataSync PUT for new UIDs. Port 0 = stream + PUT new, Port 1 = DELETE stale. Includes ArcGIS fetch failure guard (skips deletes on non-200).
+- **`eng_cot_to_xml`** — custom JSON-to-XML serializer (bypasses `node-red-contrib-tak` encode — see lesson #9 below). Outputs `Buffer` directly to `eng_tcp_out`.
 - **`eng_delay_put`** / **`eng_delay_del`** — rate-limit delays before API calls
 - **`eng_build_put`** — assembles PUT request from `msg._putUrl` + `msg._putUid` after delay
 - **`eng_http_action`** — executes PUT/DELETE against Mission API (TLS via `tls_tak`, method from `msg.method`)
-- **`eng_tak`** + **`eng_tcp_out`** — CoT encode → TCP stream to TAK Server port 8089
+- **`eng_tcp_out`** — TLS TCP stream to TAK Server port 8089 via `host.docker.internal`
 - **Debug/status/catch nodes** at key points
 
 ### Slice 3: Docs (this file + release notes)
@@ -194,14 +226,16 @@ Full-featured 5-step wizard:
 
 ## Open items / future work
 
-- **Mount TLS certs into Node-RED container**: Add a volume mount (e.g. `/opt/tak/certs/files:/data/certs:ro`) and switch `tls_tak` to "local file paths" mode so certs survive `docker cp flows.json` deploys without re-uploading every time.
-- **End-to-end testing**: Enable the engine tab, configure TLS, point at a live ArcGIS + TAK Server, and verify the full loop.
+- ~~**Mount TLS certs into Node-RED container**~~: ✅ Done. Volume mount `/opt/tak/certs/files:/certs:ro` in `docker-compose.yml`. TLS config uses `/certs/nodered-global-airdata.pem` and `.key`.
+- ~~**End-to-end testing**~~: ✅ Done. Full loop verified 2026-04-11 against live ArcGIS + TAK Server 5.5.
+- ~~**PST timestamp formatting**~~: ✅ Done. `fmtVal()` helper in `eng_parse` converts epoch > 1e12 to `MM/DD/YYYY H:MM AM PST` and rounds decimals.
 - **Multi-polygon support**: `eng_parse` currently only processes `g.rings[0]`. Iterate all rings, emit separate CoT per ring with UID `<prefix>-<id>-<ringIndex>`.
-- **PST timestamp formatting**: Add `formatPST(epochMs)` helper in `eng_parse` for human-readable date fields in remarks.
-- **Update detection**: Currently no-op for features already in mission. Could compare a hash of geometry/attributes to detect changes and re-push updated CoT.
+- **Update detection**: Currently re-streams all CoT every poll (keeps TAK cache fresh). Could compare a hash of geometry/attributes to skip unchanged features for efficiency.
 - **ArcGIS token auth**: Add optional token field to configurator for secured services.
 - **Multiple geometry support per config**: Currently one geometry type per config. Could detect mixed layers.
 - **Error handling / retry**: Engine has basic `node.warn` logging but no retry logic for failed HTTP requests.
+- **Persist tcp out host/port in build-flows.js**: Currently blank in generated flows — user must re-enter `host.docker.internal:8089` after every deploy. Could read from TAK settings or hardcode.
+- **Automate deploy steps**: The `docker cp` + restart + reconfigure TLS + re-save configurator cycle is tedious. See `docs/NODERED-DEPLOY.md` for the current manual cheat sheet.
 
 ## One-line elevator pitch
 
@@ -212,6 +246,45 @@ Full-featured 5-step wizard:
 ## Maintainer log (keep this doc current)
 
 **Why this section exists:** Cursor (and similar) may **not** reload the full chat transcript into the assistant on every turn. **Treat this file as the source of truth** for Node-RED / GIS–DataSync decisions. When you agree on a plan in chat, **append a short bullet here** so the next session does not depend on chat memory.
+
+### 2026-04-11 — Engine fully operational, CoT streaming + DataSync confirmed
+
+#### What was fixed
+
+1. **Reconciliation wiring**: Removed `eng_add_mission_simple` (blind add-only path). Rewired `eng_parse` to feed both `eng_build_sub` (subscribe) and `eng_build_m` (reconcile) in parallel. Reconciliation is now the primary and only path.
+
+2. **Zero-feature safety guard**: `eng_parse` passes `msg._features = []` on 0 features instead of returning null, allowing reconciliation to delete stale items.
+
+3. **ArcGIS failure guard**: `eng_reconcile` checks `msg._arcgisStatus`. If ArcGIS returned non-200, skips all deletes to prevent mass removal when ArcGIS is unreachable.
+
+4. **Remarks formatting**: `fmtVal()` helper in `eng_parse` converts epoch timestamps > 1e12 to `MM/DD/YYYY H:MM AM PST` (hardcoded UTC-8) and rounds decimal numbers to whole integers. Confirmed working on TAK Server.
+
+5. **Custom XML serializer**: `eng_cot_to_xml` replaces `node-red-contrib-tak` encode node. Builds CoT XML string from JSON and sends as `Buffer` to `eng_tcp_out`. The tak encode node was not reliably delivering data.
+
+6. **SA identification**: Added `eng_sa_inject` → `eng_sa_build` that sends a self-identification CoT on startup (10s delay) and every 10 minutes. Required for TAK Server to associate the TCP connection with the integration user.
+
+7. **Removed Marti tag from streamed CoT**: `<Marti><dest mission="..."/>` in the CoT XML triggered `StrictUidMissionMemebershipFilter` rejection. Removed it — DataSync PUT handles mission association via HTTPS 8443.
+
+8. **Re-stream all features every poll**: Changed `eng_reconcile` to stream CoT for ALL features (not just new ones). Keeps TAK Server's CoT cache fresh. Only sends DataSync PUT for UIDs not already in the mission.
+
+9. **Docker networking**: Confirmed `host.docker.internal:8089` for TCP stream, cert volume mount `/opt/tak/certs/files:/certs:ro`, `chmod 644` on key files.
+
+10. **Deploy cheat sheet**: Created `docs/NODERED-DEPLOY.md` with all cert paths, host/port, and step-by-step post-deploy procedure.
+
+#### What was proven end-to-end
+
+- ArcGIS FIRIS/CAL FIRE/USFS query → 10 features → CoT JSON with formatted remarks → custom XML serializer → TCP stream to TAK Server 8089 → DataSync PUT to mission → ATAK receives polygons with formatted dates (`03/25/2026 4:53 PM PST`) and whole-number acres (`1280`).
+- Delete from mission (via TAK Server GUI) → next poll re-adds with fresh CoT → confirms full lifecycle.
+
+#### Key commits
+
+- `a85372a` — SA identification message
+- `a06c03d` — re-stream CoT for all features every poll
+- `4944ba7` — remove Marti tag from streamed CoT
+- `28df73e` — bypass tak encode, custom XML serializer via TCP
+- `4d63929` — (intermediate) HTTPS POST attempt (reverted approach, endpoint doesn't exist)
+
+---
 
 ### 2026-04-10 — Engine wiring audit + DataSync integration plan
 
