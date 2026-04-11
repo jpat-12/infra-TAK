@@ -194,12 +194,14 @@ Full-featured 5-step wizard:
 
 ## Open items / future work
 
+- **Mount TLS certs into Node-RED container**: Add a volume mount (e.g. `/opt/tak/certs/files:/data/certs:ro`) and switch `tls_tak` to "local file paths" mode so certs survive `docker cp flows.json` deploys without re-uploading every time.
 - **End-to-end testing**: Enable the engine tab, configure TLS, point at a live ArcGIS + TAK Server, and verify the full loop.
+- **Multi-polygon support**: `eng_parse` currently only processes `g.rings[0]`. Iterate all rings, emit separate CoT per ring with UID `<prefix>-<id>-<ringIndex>`.
+- **PST timestamp formatting**: Add `formatPST(epochMs)` helper in `eng_parse` for human-readable date fields in remarks.
 - **Update detection**: Currently no-op for features already in mission. Could compare a hash of geometry/attributes to detect changes and re-push updated CoT.
 - **ArcGIS token auth**: Add optional token field to configurator for secured services.
 - **Multiple geometry support per config**: Currently one geometry type per config. Could detect mixed layers.
 - **Error handling / retry**: Engine has basic `node.warn` logging but no retry logic for failed HTTP requests.
-- **TAK streaming CoT**: Port 1 of reconcile outputs CoT JSON but needs `node-red-contrib-tak` wired to actually stream to TAK Server on port 8089.
 
 ## One-line elevator pitch
 
