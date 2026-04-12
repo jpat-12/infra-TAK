@@ -10,12 +10,12 @@ Double-click any HTTP Request or TCP Out node → click the pencil icon next to 
 
 **Certificate:**
 ```
-/certs/nodered-global-airdata.pem
+/certs/nodered-global-datasyncfeed.pem
 ```
 
 **Private Key:**
 ```
-/certs/nodered-global-airdata.key
+/certs/nodered-global-datasyncfeed.key
 ```
 
 Leave CA blank. Uncheck "Verify server certificate".
