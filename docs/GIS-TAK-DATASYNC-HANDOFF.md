@@ -237,6 +237,43 @@ eng_inject → eng_load → eng_build_q → eng_http_ag → eng_parse
 - **Persist tcp out host/port in build-flows.js**: Currently blank in generated flows — user must re-enter `host.docker.internal:8089` after every deploy. Could read from TAK settings or hardcode.
 - **Automate deploy steps**: The `docker cp` + restart + reconfigure TLS + re-save configurator cycle is tedious. See `docs/NODERED-DEPLOY.md` for the current manual cheat sheet.
 
+## Global DataSync Feed Architecture
+
+### Mission roles (TAK Server)
+
+| Role | Permissions | Who gets it |
+|------|-------------|-------------|
+| **Owner** | Full control — can delete the mission itself | Admin only (via TAK Server GUI) |
+| **Subscriber** | Read + write mission content (PUT/DELETE UIDs) | Integration users (e.g. `nodered-global-airdata`) |
+| **Read-only** | See and receive data, cannot modify | All agency/field users |
+
+### Global feed distribution pattern
+
+Create a single TAK group (e.g. `DATASYNC-FEEDS`) that acts as the global channel for all automated DataSync feeds. Every feed (fire perimeters, power outages, weather, etc.) is tied to this group.
+
+**Group assignments:**
+
+| Cert / User | Group assignment | Why |
+|-------------|-----------------|-----|
+| Integration users (`nodered-global-airdata`, etc.) | `DATASYNC-FEEDS -ig` (write / IN) | Push data into the group. Don't need to see feeds. |
+| All agency certs (ATAK field users) | `DATASYNC-FEEDS -og` (read / OUT) | See all feeds in Data Sync menu. Can subscribe and receive data. Cannot modify. |
+
+**Per-feed setup:**
+
+1. Admin creates the DataSync feed in TAK Server GUI or Portal (admin is owner)
+2. Feed is tied to the `DATASYNC-FEEDS` group
+3. Feed `defaultRole` = **read-only** — subscribers can't edit content
+4. Integration user subscribed as **subscriber** (`PUT .../subscription?uid=<name>`) — can PUT/DELETE content
+5. Any user with `DATASYNC-FEEDS -og` automatically sees the feed
+
+**Benefits:**
+
+- Adding a new feed automatically shows up for every agency user (they already have the group)
+- No per-user or per-agency configuration needed per feed
+- Field users can't accidentally pollute feed data
+- Integration user can manage content but can't delete the mission itself
+- Admin retains owner-level control via GUI
+
 ## One-line elevator pitch
 
 **"ArcGIS Feature Service URL + guided field/style mapping → reproducible Node-RED + DataSync lifecycle (add / keep / delete), with TTL like 'only show last 72 hours' — shipped as an infra-TAK module."**
