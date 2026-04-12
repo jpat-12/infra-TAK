@@ -68,8 +68,20 @@ Wait ~30 seconds for the auto-poll to fire. Check the debug sidebar for:
 
 ## Full server-side deploy (SSH)
 
+### Recommended: use deploy script (preserves TLS + TCP config)
+
 ```bash
-cd ~/infra-TAK && git pull && docker cp nodered/flows.json nodered:/data/flows.json && docker restart nodered
+cd ~/infra-TAK && bash nodered/deploy.sh
+```
+
+The script does: `git pull` → `build-flows.js` → backs up the running container's TLS and TCP settings → merges them into the new flows.json → `docker cp` → `docker restart`. No need to redo TLS certs or TCP host/port after each update.
+
+After the restart, open the Node-RED editor, verify everything looks right, and hit **Deploy**. Configurator configs (flow context) survive restarts automatically.
+
+### Manual deploy (first-time or if script fails)
+
+```bash
+cd ~/infra-TAK && git pull && node nodered/build-flows.js && docker cp nodered/flows.json nodered:/data/flows.json && docker restart nodered
 ```
 
 Then do steps 1-4 above in the Node-RED editor.
