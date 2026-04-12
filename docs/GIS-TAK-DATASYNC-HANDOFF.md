@@ -284,6 +284,70 @@ Create a single TAK group (e.g. `DATASYNC-FEEDS`) that acts as the global channe
 
 **Why this section exists:** Cursor (and similar) may **not** reload the full chat transcript into the assistant on every turn. **Treat this file as the source of truth** for Node-RED / GIS–DataSync decisions. When you agree on a plan in chat, **append a short bullet here** so the next session does not depend on chat memory.
 
+### 2026-04-12 — New global integration user + DataSync PUT 403 / group direction investigation
+
+#### New integration user: `nodered-global-datasyncfeed`
+
+Replaced per-feed cert (`nodered-global-airdata`) with a single global integration user that will push data to ALL DataSync feeds. Cert created via TAK Portal, assigned to `DATASYNC-FEED` group.
+
+- **Cert files**: `/opt/tak/certs/files/nodered-global-datasyncfeed.pem` / `.key`
+- **chmod 644** required on `.key` for Node-RED container to read
+- **TLS configs in Node-RED**: both TCP Out (8089 streaming) and HTTP Request (8443 API) nodes share one TLS config node — update cert/key paths and re-enter passphrase after any cert change
+
+#### TCP streaming: working
+
+CoT streaming over TCP 8089 works. Data appears on ATAK map. SA ident fires, TAK Server associates the connection with `nodered-global-datasyncfeed`. Formatted remarks confirmed (24h clock, whole-number acres, PST dates):
+```
+CreationDate: 03/25/2026 16:53 PST | source: FIRIS | mission: CA-FKU-PARAMOUNT | incident_name:  | area_acres: 1280
+```
+
+#### DataSync PUT: 403 Forbidden
+
+Reconcile node fires 10 PUTs, all return empty response. Manual `curl -v` confirms **HTTP 403**. Root cause: `nodered-global-datasyncfeed` only has **OUT** (read) direction on the `DATASYNC-FEED` group — no write access.
+
+#### Mission setup (CA AIR INTEL)
+
+1. Created mission `CA AIR INTEL` in TAK Server GUI, group `DATASYNC-FEED`, default role `MISSION_SUBSCRIBER`
+2. Subscribed `nodered-global-datasyncfeed` via CLI PUT — got `MISSION_SUBSCRIBER` (read+write)
+3. Changed default role to `MISSION_READONLY_SUBSCRIBER` in GUI — new subscribers get read-only
+4. **Finding**: changing default role may retroactively downgrade existing subscriptions. Re-subscribing while default is SUBSCRIBER restores write access.
+
+#### Group direction bug: x509 cert auth gets OUT only from base LDAP group
+
+**Symptom**: `nodered-global-datasyncfeed` in LDAP group `tak_DATASYNC-FEED` (base = BOTH). TAK Server groups API returns `direction: OUT` only. DataSync PUT returns 403.
+
+**Proof regular users are fine**: user `ajioscacor` is in `tak_CA-COR takaware` (base group, one entry in Authentik) and TAK Server shows `CA-COR takaware←, CA-COR takaware→` (BOTH directions). No `_READ` or `_WRITE` groups needed.
+
+**Conclusion**: TAK Server resolves the base LDAP group as **BOTH** for username/password LDAP auth, but only **OUT** for x509 cert-only auth. This is either a TAK Server bug or a missing step when creating integration users.
+
+#### TAK Portal bugs found
+
+1. **"Edit Group" direction changes don't propagate to LDAP**: changing direction from BOTH→WRITE in Portal UI updates Portal's DB but does NOT move the user between Authentik LDAP groups (`tak_DATASYNC-FEED` → `tak_DATASYNC-FEED_WRITE`). Verified via `ldapsearch`.
+2. **Manual fix in Authentik works**: directly adding user to `tak_DATASYNC-FEED_WRITE` in Authentik admin DID propagate to LDAP, but TAK Server returned `data: []` (no groups) because the user was moved OUT of the base group.
+3. **LDAP group convention** (from MyTeckNet): `tak_GROUP` = BOTH, `tak_GROUP_READ` = OUT, `tak_GROUP_WRITE` = IN. For LDAP, to restrict to a single direction, user goes in the `_READ` or `_WRITE` variant only.
+
+#### Proposed fix (to try next session)
+
+**Important**: with `default="ldap"` and `x509groups="true"` in CoreConfig, TAK Server uses LDAP as the sole authority for group assignment. The cert is authentication only; `UserAuthentication.xml` / `certmod` is ignored. The fix must be in LDAP/Authentik.
+
+**Try `certmod -g` anyway** as a quick test — if TAK Server truly ignores it, no harm done:
+```bash
+java -jar /opt/tak/utils/UserManager.jar certmod -g DATASYNC-FEED /opt/tak/certs/files/nodered-global-datasyncfeed.pem
+```
+
+**Core question for Justin**: Regular user `ajioscacor` in base group `tak_CA-COR takaware` gets BOTH arrows (IN+OUT) in TAK Server client monitoring. Integration user `nodered-global-datasyncfeed` in base group `tak_DATASYNC-FEED` gets OUT only. Both are in `ou=users,dc=takldap` with the same `memberOf` pattern. Why the difference?
+
+**TAK Portal action items**:
+- Fix "Edit Group" direction changes to actually update LDAP group membership (currently only updates Portal DB)
+- Investigate why integration users resolve to OUT-only from a base LDAP group that should be BOTH
+- Consider whether `certmod` should be part of the integration creation flow as a belt-and-suspenders measure
+
+#### TAK Server version note
+
+This is **TAK Server 5.7** (previously noted as 5.5 — corrected).
+
+---
+
 ### 2026-04-11 — Engine fully operational, CoT streaming + DataSync confirmed
 
 #### What was fixed
@@ -294,7 +358,7 @@ Create a single TAK group (e.g. `DATASYNC-FEEDS`) that acts as the global channe
 
 3. **ArcGIS failure guard**: `eng_reconcile` checks `msg._arcgisStatus`. If ArcGIS returned non-200, skips all deletes to prevent mass removal when ArcGIS is unreachable.
 
-4. **Remarks formatting**: `fmtVal()` helper in `eng_parse` converts epoch timestamps > 1e12 to `MM/DD/YYYY H:MM AM PST` (hardcoded UTC-8) and rounds decimal numbers to whole integers. Confirmed working on TAK Server.
+4. **Remarks formatting**: `fmtVal()` helper in `eng_parse` converts epoch timestamps > 1e12 to `MM/DD/YYYY HH:MM PST` (24-hour clock, hardcoded UTC-8) and rounds decimal numbers to whole integers. Confirmed working on TAK Server.
 
 5. **Custom XML serializer**: `eng_cot_to_xml` replaces `node-red-contrib-tak` encode node. Builds CoT XML string from JSON and sends as `Buffer` to `eng_tcp_out`. The tak encode node was not reliably delivering data.
 
