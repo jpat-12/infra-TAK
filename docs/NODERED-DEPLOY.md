@@ -74,9 +74,11 @@ Wait ~30 seconds for the auto-poll to fire. Check the debug sidebar for:
 cd ~/infra-TAK && bash nodered/deploy.sh
 ```
 
-The script does: `git pull` → `build-flows.js` → backs up the running container's TLS and TCP settings → merges them into the new flows.json → `docker cp` → `docker restart`. No need to redo TLS certs or TCP host/port after each update.
+The script does: `git pull` → `build-flows.js` → reads flow context for `creatorUid` → auto-populates TLS cert paths (`/certs/{creatorUid}.pem/.key`) → preserves any existing TLS/TCP overrides → `docker cp` → `docker restart`.
 
-After the restart, open the Node-RED editor, verify everything looks right, and hit **Deploy**. Configurator configs (flow context) survive restarts automatically.
+**After the first time** you configure TAK Settings in the configurator (which sets `creatorUid`), every subsequent deploy auto-configures TLS. No manual steps.
+
+Configurator configs (flow context) survive restarts on the Docker volume.
 
 ### Manual deploy (first-time or if script fails)
 
