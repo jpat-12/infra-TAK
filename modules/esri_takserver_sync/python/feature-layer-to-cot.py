@@ -32,8 +32,8 @@ DEFAULT_CONFIG = {
         #             The cert must be enrolled/trusted by TAK Server.
         #   "plain" — Plain TCP, no certificate required (port 8087 default)
         #             Use this for quick testing or when TLS is handled upstream.
-        "auth_mode": "cert",
-        "port": 8089,
+        "auth_mode": "plain",
+        "port": 8087,
         "cert_path": "/opt/Esri-TAKServer-Sync/certs/esri-push.p12",
         "cert_password": "",
         "ca_cert": ""           # path to TAK Server CA cert for verification; empty = no verify

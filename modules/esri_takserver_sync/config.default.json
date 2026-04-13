@@ -1,0 +1,39 @@
+{
+  "_comment": "Copy this to /opt/Esri-TAKServer-Sync/config.json and edit before starting the service.",
+  "tak_server": {
+    "host": "localhost",
+    "auth_mode": "plain",
+    "port": 8087,
+    "cert_path": "",
+    "cert_password": "",
+    "ca_cert": ""
+  },
+  "feature_layer": {
+    "url": "",
+    "public": true,
+    "layer_type": "online",
+    "username": "",
+    "password": "",
+    "portal_url": "",
+    "poll_interval": 30,
+    "page_size": 1000
+  },
+  "field_mapping": {
+    "lat": "",
+    "lon": "",
+    "uid_field": "objectid",
+    "uid_prefix": "EsriSync",
+    "callsign_field": "",
+    "cot_type": "a-f-G",
+    "altitude_field": "",
+    "remarks_fields": []
+  },
+  "cot": {
+    "stale_minutes": 5,
+    "how": "m-g"
+  },
+  "delta": {
+    "enabled": true,
+    "track_field": "EditDate"
+  }
+}
