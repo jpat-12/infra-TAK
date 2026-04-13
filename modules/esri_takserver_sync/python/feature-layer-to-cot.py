@@ -430,13 +430,11 @@ class TAKClient:
     # ── Send ──────────────────────────────────────────────────────────────────
 
     def send(self, cot_xml: str):
-        """Send one CoT event. Reconnects once on failure."""
-        if not self.is_alive():
-            log.debug("Socket not alive — reconnecting before send")
-            self.close()
-            self.connect()
+        """Send one CoT event. Reconnects once on actual send failure."""
         data = (cot_xml + "\n").encode("utf-8")
         try:
+            if not self._sock:
+                self.connect()
             self._sock.sendall(data)
         except (OSError, ssl.SSLError) as exc:
             log.warning("TAK send failed (%s) — reconnecting", exc)
@@ -463,7 +461,7 @@ class TAKClient:
             self.send(ping)
             log.debug("Keepalive sent")
         except Exception as exc:
-            log.debug("Keepalive failed: %s", exc)
+            log.warning("Keepalive failed: %s", exc)
 
     # ── Close ─────────────────────────────────────────────────────────────────
 

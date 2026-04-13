@@ -3,10 +3,11 @@ Description=Esri-TAKServer-Sync — Feature Layer to CoT
 After=network.target
 
 [Service]
+ExecStartPre=/bin/sh -c 'echo "=== $(date -u +%%Y-%%m-%%dT%%H:%%M:%%SZ) START ===" > /var/log/esri-takserver-sync-feature-layer-to-cot.log'
 ExecStart=/usr/bin/python3 /opt/Esri-TAKServer-Sync/feature-layer-to-cot.py
 WorkingDirectory=/opt/Esri-TAKServer-Sync
-StandardOutput=file:/var/log/esri-takserver-sync-feature-layer-to-cot.log
-StandardError=file:/var/log/esri-takserver-sync-feature-layer-to-cot.log
+StandardOutput=append:/var/log/esri-takserver-sync-feature-layer-to-cot.log
+StandardError=append:/var/log/esri-takserver-sync-feature-layer-to-cot.log
 Restart=on-failure
 RestartSec=10
 User=root
