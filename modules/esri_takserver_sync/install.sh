@@ -44,6 +44,10 @@ echo ""
 
 # ── Step 1: Python dependency ─────────────────────────────────────────────────
 echo "[1/5] Installing Python dependency (requests)…"
+if ! command -v pip3 &>/dev/null; then
+  echo "  pip3 not found — installing python3-pip via apt…"
+  apt-get install -y -qq python3-pip
+fi
 pip3 install --quiet requests
 echo "  ✓ requests"
 
