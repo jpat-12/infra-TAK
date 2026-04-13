@@ -27,8 +27,13 @@ CONFIG_PATH = os.environ.get(
 DEFAULT_CONFIG = {
     "tak_server": {
         "host": "localhost",
+        # auth_mode controls how the client authenticates to TAK Server:
+        #   "cert"  — TLS with a .p12 client certificate (port 8089 default)
+        #             The cert must be enrolled/trusted by TAK Server.
+        #   "plain" — Plain TCP, no certificate required (port 8087 default)
+        #             Use this for quick testing or when TLS is handled upstream.
+        "auth_mode": "cert",
         "port": 8089,
-        "tls": True,
         "cert_path": "/opt/Esri-TAKServer-Sync/certs/esri-push.p12",
         "cert_password": "",
         "ca_cert": ""           # path to TAK Server CA cert for verification; empty = no verify
@@ -296,48 +301,103 @@ def build_cot(feature: dict, fm: dict, cot_cfg: dict) -> str:
 
 # ── TAK Server TCP Client ─────────────────────────────────────────────────────
 
+# Default ports per auth mode
+_AUTH_MODE_DEFAULT_PORTS = {
+    "cert":  8089,   # TLS with client certificate
+    "plain": 8087,   # Plain TCP, no certificate
+}
+
+
 class TAKClient:
-    """Persistent TCP (optionally TLS/SSL) connection to TAK Server."""
+    """
+    Persistent TCP connection to TAK Server.
+
+    auth_mode = "cert"  → TLS with .p12 client certificate (port 8089)
+    auth_mode = "plain" → Plain TCP, no certificate required (port 8087)
+    """
 
     def __init__(self, cfg: dict):
         tak = cfg["tak_server"]
-        self.host         = tak["host"]
-        self.port         = int(tak.get("port", 8089))
-        self.use_tls      = tak.get("tls", True)
-        self.cert_path    = tak.get("cert_path", "")
-        self.cert_password = tak.get("cert_password", "")
-        self.ca_cert      = tak.get("ca_cert", "")
-        self._sock        = None
+        self.host       = tak["host"]
+        self.auth_mode  = tak.get("auth_mode", "cert").lower()
+
+        # Honour explicit port; fall back to mode default
+        default_port    = _AUTH_MODE_DEFAULT_PORTS.get(self.auth_mode, 8089)
+        self.port       = int(tak.get("port") or default_port)
+
+        self.cert_path  = tak.get("cert_path", "")
+        self.cert_pass  = tak.get("cert_password", "")
+        self.ca_cert    = tak.get("ca_cert", "")
+        self._sock      = None
+
+    # ── Connection ────────────────────────────────────────────────────────────
 
     def connect(self):
         raw = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         raw.settimeout(10)
         raw.connect((self.host, self.port))
 
-        if self.use_tls:
+        if self.auth_mode == "cert":
             ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
             if self.ca_cert:
                 ctx.load_verify_locations(self.ca_cert)
-                ctx.verify_mode   = ssl.CERT_REQUIRED
+                ctx.verify_mode    = ssl.CERT_REQUIRED
                 ctx.check_hostname = True
             else:
                 ctx.check_hostname = False
-                ctx.verify_mode   = ssl.CERT_NONE
+                ctx.verify_mode    = ssl.CERT_NONE
 
-            # .p12 must be split into PEM files by setup-cert.py
+            # .p12 must have PEM sidecars extracted by setup-cert.py
             pem_cert = self.cert_path.replace(".p12", "-cert.pem")
             pem_key  = self.cert_path.replace(".p12", "-key.pem")
             if os.path.exists(pem_cert) and os.path.exists(pem_key):
                 ctx.load_cert_chain(pem_cert, pem_key)
+            else:
+                log.warning(
+                    "PEM sidecars not found (%s / %s). "
+                    "Run setup-cert.py or re-deploy to generate them.",
+                    pem_cert, pem_key
+                )
 
             self._sock = ctx.wrap_socket(raw, server_hostname=self.host)
         else:
+            # Plain TCP — no TLS, no cert
             self._sock = raw
 
-        log.info("Connected to TAK Server %s:%d (TLS=%s)", self.host, self.port, self.use_tls)
+        # Switch to blocking after connect (sendall needs it)
+        self._sock.settimeout(None)
+        log.info(
+            "Connected to TAK Server %s:%d (auth_mode=%s)",
+            self.host, self.port, self.auth_mode
+        )
+
+    # ── Health check ──────────────────────────────────────────────────────────
+
+    def is_alive(self) -> bool:
+        """Non-destructive check: returns False if the server has closed the socket."""
+        if not self._sock:
+            return False
+        try:
+            self._sock.setblocking(False)
+            data = self._sock.recv(1, socket.MSG_PEEK)
+            self._sock.setblocking(True)
+            # recv returned 0 bytes → clean close by peer
+            return len(data) > 0
+        except BlockingIOError:
+            # No data waiting, but socket is still open — healthy
+            self._sock.setblocking(True)
+            return True
+        except (OSError, ssl.SSLError):
+            self._sock.setblocking(True)
+            return False
+
+    # ── Send ──────────────────────────────────────────────────────────────────
 
     def send(self, cot_xml: str):
-        if not self._sock:
+        """Send one CoT event. Reconnects once on failure."""
+        if not self.is_alive():
+            log.debug("Socket not alive — reconnecting before send")
+            self.close()
             self.connect()
         data = (cot_xml + "\n").encode("utf-8")
         try:
@@ -347,6 +407,29 @@ class TAKClient:
             self.close()
             self.connect()
             self._sock.sendall(data)
+
+    def send_keepalive(self):
+        """
+        Send a minimal CoT SA ping to keep the connection alive between polls.
+        TAK Server drops idle connections; this prevents that.
+        """
+        now   = datetime.now(timezone.utc)
+        stale = now + timedelta(minutes=1)
+        ping  = (
+            f'<event version="2.0" uid="EsriSync-keepalive" type="t-x-c-t" '
+            f'time="{_fmt_time(now)}" start="{_fmt_time(now)}" stale="{_fmt_time(stale)}" '
+            f'how="m-g">'
+            f'<point lat="0" lon="0" hae="0" ce="9999999.0" le="9999999.0"/>'
+            f'<detail/>'
+            f'</event>'
+        )
+        try:
+            self.send(ping)
+            log.debug("Keepalive sent")
+        except Exception as exc:
+            log.debug("Keepalive failed: %s", exc)
+
+    # ── Close ─────────────────────────────────────────────────────────────────
 
     def close(self):
         if self._sock:
@@ -439,7 +522,14 @@ def main():
     tak   = TAKClient(cfg)
     tak.connect()
 
-    log.info("Poll loop started (interval=%ds, delta=%s)", poll_interval, delta.enabled)
+    log.info(
+        "Poll loop started (interval=%ds, auth_mode=%s, delta=%s)",
+        poll_interval, tak.auth_mode, delta.enabled
+    )
+
+    # Send a keepalive every 15 s during idle to prevent TAK Server
+    # from dropping the connection between polls.
+    KEEPALIVE_INTERVAL = 15
 
     while _running:
         try:
@@ -461,11 +551,13 @@ def main():
         except Exception as exc:
             log.exception("Unexpected error: %s", exc)
 
-        # Interruptible sleep so SIGTERM is handled promptly
-        for _ in range(poll_interval):
-            if not _running:
-                break
+        # Interruptible sleep with periodic keepalives
+        elapsed = 0
+        while elapsed < poll_interval and _running:
             time.sleep(1)
+            elapsed += 1
+            if elapsed % KEEPALIVE_INTERVAL == 0 and _running:
+                tak.send_keepalive()
 
     tak.close()
     log.info("Stopped.")

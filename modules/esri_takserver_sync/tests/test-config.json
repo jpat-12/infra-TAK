@@ -2,8 +2,8 @@
   "_comment": "Test config — points at ESRI's public USA Major Cities sample layer. No auth needed.",
   "tak_server": {
     "host": "127.0.0.1",
-    "port": 8089,
-    "tls": false,
+    "auth_mode": "plain",
+    "port": 8087,
     "cert_path": "",
     "cert_password": "",
     "ca_cert": ""

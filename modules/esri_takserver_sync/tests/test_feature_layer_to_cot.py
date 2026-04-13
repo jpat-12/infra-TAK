@@ -247,7 +247,7 @@ class TestLoadConfig:
 
     def test_full_config_loads(self):
         full = {
-            "tak_server":    {"host": "10.0.0.1", "port": 8089, "tls": True,
+            "tak_server":    {"host": "10.0.0.1", "auth_mode": "cert", "port": 8089,
                               "cert_path": "/certs/test.p12", "cert_password": "secret", "ca_cert": ""},
             "feature_layer": {"url": "https://example.com/layer/0", "public": True,
                               "username": "", "password": "", "portal_url": "https://www.arcgis.com",
