@@ -12833,7 +12833,7 @@ function renderIconsetList(){
     html+='<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">';
     html+='<div style="flex:1"><strong>'+s.name+'</strong> <span style="font-size:11px;color:var(--text-dim)">'+s.uuid+'</span>';
     html+='<br><span style="font-size:12px;color:var(--text-secondary)">'+s.icons.length+' icons · group: '+s.group+'</span></div>';
-    html+='<button class="btn btn-ghost" style="padding:4px 12px;font-size:12px;color:var(--red)" onclick="deleteIconset(\''+s.uuid+'\',\''+s.name+'\')">🗑 Remove</button>';
+    html+='<button class="btn btn-ghost" style="padding:4px 12px;font-size:12px;color:var(--red)" onclick="deleteIconset(this.dataset.uuid,this.dataset.name)" data-uuid="'+s.uuid+'" data-name="'+_esc(s.name)+'">🗑 Remove</button>';
     html+='</div>';
     // show first few icons as previews
     var preview='<div style="display:flex;flex-wrap:wrap;gap:6px;padding:8px 0 4px">';
@@ -12936,7 +12936,7 @@ function openPicker(rowIdx){
     html+='<div style="font-size:12px;font-weight:600;color:var(--text-secondary);padding:8px 0 4px;grid-column:1/-1">'+s.name+'</div>';
     s.icons.forEach(function(ic){
       var imgPath='/api/esri-tak-sync/icons/img/'+ic.path;
-      html+='<div onclick="pickIcon(\''+ic.path+'\')" title="'+_esc(ic.name)+'" '
+      html+='<div onclick="pickIcon(this.dataset.path)" data-path="'+ic.path+'" title="'+_esc(ic.name)+'" '
            +'style="display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--surface)">'
            +'<img src="'+imgPath+'" style="width:32px;height:32px;object-fit:contain">'
            +'<span style="font-size:10px;color:var(--text-secondary);text-align:center;word-break:break-word">'+_esc(ic.name)+'</span>'
