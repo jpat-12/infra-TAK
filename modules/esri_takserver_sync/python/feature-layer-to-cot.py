@@ -70,13 +70,12 @@ DEFAULT_CONFIG = {
         "enabled": False,
         # Column whose value selects the icon
         "column": "",
-        # Iconset UUID from iconset.xml
-        "iconset_uuid": "412c43f948b1664a3a0b513336b6c32382b13289a6ed2e91dd31e23d9d52a683",
-        # Subfolder inside the iconset zip
-        "iconset_group": "Incident Icons",
-        # Fallback icon when a value has no mapping
-        "default_icon": "Placeholder Other.png",
-        # value → icon filename (just the filename, not the full path)
+        # Full iconsetpath used when a value has no mapping entry
+        # Format: "<uuid>/<group>/<filename.png>"
+        "default_iconsetpath": "412c43f948b1664a3a0b513336b6c32382b13289a6ed2e91dd31e23d9d52a683/Incident Icons/Placeholder Other.png",
+        # value → full iconsetpath  (supports mixing icons from different uploaded sets)
+        # e.g. "Hazard, Fire": "412c43f9.../Incident Icons/Fire.png"
+        #      "My Custom":    "other_uuid/MyGroup/custom.png"
         "map": {}
     }
 }
@@ -302,12 +301,14 @@ def build_cot(feature: dict, fm: dict, cot_cfg: dict, icon_cfg: dict | None = No
     # ── Icon ──────────────────────────────────────────────────────────────────
     usericon_xml = ""
     if icon_cfg and icon_cfg.get("enabled") and icon_cfg.get("column"):
-        col_val      = str(attrs.get(icon_cfg["column"], "")).strip()
-        icon_file    = icon_cfg.get("map", {}).get(col_val) or icon_cfg.get("default_icon", "Placeholder Other.png")
-        uuid         = icon_cfg.get("iconset_uuid", "")
-        group        = icon_cfg.get("iconset_group", "Incident Icons")
-        iconsetpath  = f"{uuid}/{group}/{icon_file}"
-        usericon_xml = f'<usericon iconsetpath="{iconsetpath}" />'
+        col_val     = str(attrs.get(icon_cfg["column"], "")).strip()
+        # map values are full iconsetpaths — supports mixing different uploaded sets
+        iconsetpath = (
+            icon_cfg.get("map", {}).get(col_val)
+            or icon_cfg.get("default_iconsetpath", "")
+        )
+        if iconsetpath:
+            usericon_xml = f'<usericon iconsetpath="{iconsetpath}" />'
 
     return (
         f'<event version="2.0" uid="{uid}" type="{cot_type}" '

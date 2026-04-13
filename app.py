@@ -13235,7 +13235,7 @@ def _run_esri_tak_sync_install():
         src_svc  = os.path.join(base_dir, 'modules', 'esri_takserver_sync', 'service-files')
 
         # Step 1: pip install requests
-        plog("━━━ Step 1/5: Installing Python dependencies ━━━")
+        plog("━━━ Step 1/6: Installing Python dependencies ━━━")
         r = subprocess.run(['pip3', 'install', 'requests'],
                            capture_output=True, text=True, timeout=120)
         if r.returncode != 0:
@@ -13245,7 +13245,7 @@ def _run_esri_tak_sync_install():
 
         # Step 2: Copy scripts
         plog("")
-        plog("━━━ Step 2/5: Copying scripts ━━━")
+        plog("━━━ Step 2/6: Copying scripts ━━━")
         os.makedirs(ESRI_TAK_SYNC_DIR, exist_ok=True)
         for fname in ('feature-layer-to-cot.py', 'setup-cert.py'):
             src = os.path.join(src_py, fname)
@@ -13258,13 +13258,14 @@ def _run_esri_tak_sync_install():
 
         # Step 3: Write config.json
         plog("")
-        plog("━━━ Step 3/5: Writing config.json ━━━")
+        plog("━━━ Step 3/6: Writing config.json ━━━")
         config_path = os.path.join(ESRI_TAK_SYNC_DIR, 'config.json')
+        auth_mode = (cfg.get('tak_auth_mode') or 'plain').strip()
         config_data = {
             "tak_server": {
                 "host":          (cfg.get('tak_host') or 'localhost').strip(),
-                "port":          int(cfg.get('tak_port') or 8089),
-                "tls":           bool(cfg.get('tak_tls', True)),
+                "port":          int(cfg.get('tak_port') or (8089 if auth_mode == 'cert' else 8087)),
+                "auth_mode":     auth_mode,
                 "cert_path":     os.path.join(ESRI_TAK_SYNC_DIR, 'certs', 'esri-push.p12'),
                 "cert_password": (cfg.get('cert_password') or '').strip(),
                 "ca_cert":       (cfg.get('ca_cert') or '').strip()
@@ -13296,6 +13297,12 @@ def _run_esri_tak_sync_install():
             "delta": {
                 "enabled":     bool(cfg.get('delta_enabled', True)),
                 "track_field": (cfg.get('delta_field') or 'EditDate').strip()
+            },
+            "icon_mapping": {
+                "enabled":             bool(cfg.get('icon_enabled', False)),
+                "column":              (cfg.get('icon_column') or '').strip(),
+                "default_iconsetpath": (cfg.get('icon_default_path') or '').strip(),
+                "map":                 cfg.get('icon_map') or {}
             }
         }
         with open(config_path, 'w') as f:
@@ -13308,7 +13315,7 @@ def _run_esri_tak_sync_install():
         key_pem  = os.path.join(cert_dir, 'esri-push-key.pem')
         cert_pem = os.path.join(cert_dir, 'esri-push-cert.pem')
         plog("")
-        plog("━━━ Step 4/5: Certificate ━━━")
+        plog("━━━ Step 4/6: Certificate ━━━")
         if not os.path.exists(p12_path):
             os.makedirs(cert_dir, exist_ok=True)
             r = subprocess.run(
@@ -13337,7 +13344,7 @@ def _run_esri_tak_sync_install():
 
         # Step 5: Install systemd service
         plog("")
-        plog("━━━ Step 5/5: systemd service ━━━")
+        plog("━━━ Step 5/6: systemd service ━━━")
         svc_src = os.path.join(src_svc, 'feature-layer-to-cot.service')
         svc_dst = '/etc/systemd/system/feature-layer-to-cot.service'
         if os.path.exists(svc_src):
@@ -13347,6 +13354,20 @@ def _run_esri_tak_sync_install():
             plog("  Service not auto-started — configure TAK cert, then click Start")
         else:
             plog(f"  ⚠ Service file not found: {svc_src}")
+
+        # Step 6: Copy bundled iconsets
+        plog("")
+        plog("━━━ Step 6/6: Bundled Iconsets ━━━")
+        icons_dst = os.path.join(ESRI_TAK_SYNC_DIR, 'icons')
+        os.makedirs(icons_dst, exist_ok=True)
+        src_icons = os.path.join(base_dir, 'modules', 'esri_takserver_sync', 'icons')
+        if os.path.isdir(src_icons):
+            for zf in os.listdir(src_icons):
+                if zf.endswith('.zip'):
+                    _shutil.copy2(os.path.join(src_icons, zf), os.path.join(icons_dst, zf))
+                    plog(f"  ✓ {zf}")
+        else:
+            plog("  (no bundled iconsets found)")
 
         plog("")
         plog("━━━ Install complete ━━━")
@@ -13398,7 +13419,7 @@ def esri_tak_sync_page():
 def esri_tak_sync_save_config():
     data = request.get_json(silent=True) or {}
     cfg  = _esri_tak_sync_load_config()
-    for key in ['tak_host', 'tak_port', 'tak_tls', 'cert_password', 'ca_cert',
+    for key in ['tak_host', 'tak_port', 'tak_auth_mode', 'cert_password', 'ca_cert',
                 'layer_url', 'layer_public', 'layer_type', 'esri_username',
                 'esri_password', 'portal_url', 'poll_interval', 'page_size',
                 'lat_field', 'lon_field', 'uid_field', 'uid_prefix',
@@ -13417,9 +13438,9 @@ def esri_tak_sync_save_config():
             fl = existing.setdefault('feature_layer', {})
             fm = existing.setdefault('field_mapping', {})
             dt = existing.setdefault('delta', {})
-            if cfg.get('tak_host'):      ts['host'] = cfg['tak_host'].strip()
-            if cfg.get('tak_port'):      ts['port'] = int(cfg['tak_port'])
-            if 'tak_tls' in cfg:         ts['tls']  = bool(cfg['tak_tls'])
+            if cfg.get('tak_host'):       ts['host']      = cfg['tak_host'].strip()
+            if cfg.get('tak_port'):       ts['port']      = int(cfg['tak_port'])
+            if cfg.get('tak_auth_mode'):  ts['auth_mode'] = cfg['tak_auth_mode'].strip()
             if cfg.get('layer_url'):     fl['url']  = cfg['layer_url'].strip()
             if cfg.get('layer_type'):    fl['layer_type'] = cfg['layer_type'].strip()
             if 'layer_public' in cfg:    fl['public'] = bool(cfg['layer_public'])
@@ -13501,6 +13522,129 @@ def esri_tak_sync_uninstall():
     return jsonify({'success': True})
 
 
+ESRI_TAK_SYNC_ICONS_DIR = os.path.join(ESRI_TAK_SYNC_DIR, 'icons')
+
+
+def _esri_tak_sync_icon_manifest():
+    """Return list of all installed iconsets parsed from their zip files."""
+    import zipfile, xml.etree.ElementTree as ET
+    sets = []
+    if not os.path.isdir(ESRI_TAK_SYNC_ICONS_DIR):
+        return sets
+    for fname in sorted(os.listdir(ESRI_TAK_SYNC_ICONS_DIR)):
+        if not fname.lower().endswith('.zip'):
+            continue
+        zpath = os.path.join(ESRI_TAK_SYNC_ICONS_DIR, fname)
+        try:
+            with zipfile.ZipFile(zpath) as z:
+                xml_data = z.read('iconset.xml')
+                root = ET.fromstring(xml_data)
+                uuid  = root.attrib.get('uid', '')
+                name  = root.attrib.get('name', fname)
+                group = root.attrib.get('defaultGroup', name)
+                raw   = [n for n in z.namelist()
+                         if n.lower().endswith('.png') and not n.startswith('__')]
+            icons = [{'name': os.path.basename(p), 'path': uuid + '/' + p}
+                     for p in sorted(raw)]
+            sets.append({'uuid': uuid, 'name': name, 'group': group,
+                         'zip': fname, 'icons': icons})
+        except Exception:
+            pass
+    return sets
+
+
+@app.route('/api/esri-tak-sync/icons/list')
+@login_required
+def esri_tak_sync_icons_list():
+    return jsonify({'iconsets': _esri_tak_sync_icon_manifest()})
+
+
+@app.route('/api/esri-tak-sync/icons/upload', methods=['POST'])
+@login_required
+def esri_tak_sync_icons_upload():
+    import zipfile, xml.etree.ElementTree as ET
+    f = request.files.get('file')
+    if not f or not f.filename.lower().endswith('.zip'):
+        return jsonify({'success': False, 'error': 'Upload a .zip iconset file'}), 400
+    os.makedirs(ESRI_TAK_SYNC_ICONS_DIR, exist_ok=True)
+    save_path = os.path.join(ESRI_TAK_SYNC_ICONS_DIR, f.filename)
+    f.save(save_path)
+    # Validate it contains iconset.xml
+    try:
+        with zipfile.ZipFile(save_path) as z:
+            xml_data = z.read('iconset.xml')
+            root = ET.fromstring(xml_data)
+            uuid  = root.attrib.get('uid', '')
+            name  = root.attrib.get('name', f.filename)
+            icons = [n for n in z.namelist() if n.lower().endswith('.png')]
+    except Exception as e:
+        os.remove(save_path)
+        return jsonify({'success': False, 'error': f'Invalid iconset zip: {e}'}), 400
+    return jsonify({'success': True, 'uuid': uuid, 'name': name, 'icon_count': len(icons)})
+
+
+@app.route('/api/esri-tak-sync/icons/delete', methods=['POST'])
+@login_required
+def esri_tak_sync_icons_delete():
+    data = request.get_json(silent=True) or {}
+    uuid = data.get('uuid', '').strip()
+    if not uuid:
+        return jsonify({'success': False, 'error': 'No uuid provided'}), 400
+    for iset in _esri_tak_sync_icon_manifest():
+        if iset['uuid'] == uuid:
+            path = os.path.join(ESRI_TAK_SYNC_ICONS_DIR, iset['zip'])
+            if os.path.exists(path):
+                os.remove(path)
+            return jsonify({'success': True})
+    return jsonify({'success': False, 'error': 'Iconset not found'}), 404
+
+
+@app.route('/api/esri-tak-sync/icons/img/<uuid>/<path:icon_path>')
+@login_required
+def esri_tak_sync_icon_img(uuid, icon_path):
+    """Serve a single icon PNG from the matching iconset zip."""
+    import zipfile
+    from flask import send_file
+    import io
+    for iset in _esri_tak_sync_icon_manifest():
+        if iset['uuid'] == uuid:
+            zpath = os.path.join(ESRI_TAK_SYNC_ICONS_DIR, iset['zip'])
+            with zipfile.ZipFile(zpath) as z:
+                data = z.read(icon_path)
+            return send_file(io.BytesIO(data), mimetype='image/png')
+    return '', 404
+
+
+@app.route('/api/esri-tak-sync/icons/save-mapping', methods=['POST'])
+@login_required
+def esri_tak_sync_icons_save_mapping():
+    data = request.get_json(silent=True) or {}
+    cfg = _esri_tak_sync_load_config()
+    cfg['icon_column']          = data.get('column', '')
+    cfg['icon_enabled']         = bool(data.get('enabled', False))
+    cfg['icon_default_path']    = data.get('default_iconsetpath', '')
+    cfg['icon_map']             = data.get('map', {})
+    _esri_tak_sync_save_config(cfg)
+    # Also write directly into the deployed config.json so the service picks it up
+    deployed = os.path.join(ESRI_TAK_SYNC_DIR, 'config.json')
+    if os.path.exists(deployed):
+        try:
+            import json as _j
+            with open(deployed) as fh:
+                dcfg = _j.load(fh)
+            dcfg['icon_mapping'] = {
+                'enabled':              cfg['icon_enabled'],
+                'column':               cfg['icon_column'],
+                'default_iconsetpath':  cfg['icon_default_path'],
+                'map':                  cfg['icon_map'],
+            }
+            with open(deployed, 'w') as fh:
+                _j.dump(dcfg, fh, indent=2)
+        except Exception:
+            pass
+    return jsonify({'success': True})
+
+
 ESRI_TAK_SYNC_TEMPLATE = '''<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Esri-TAK Sync — infra-TAK</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -13560,6 +13704,7 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:'DM Sans',s
   <div class="tab-bar">
     <button class="tab active" id="tab-btn-deploy" onclick="showTab('deploy')">🚀 {% if mod.installed %}Re-Deploy{% else %}Deploy{% endif %}</button>
     <button class="tab" id="tab-btn-config" onclick="showTab('config')">⚙️ Config</button>
+    <button class="tab" id="tab-btn-icons" onclick="showTab('icons');loadIconsets()">🎨 Icons</button>
     <button class="tab" id="tab-btn-service" onclick="showTab('service');refreshStatus()">🟢 Service</button>
   </div>
 
@@ -13621,10 +13766,10 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:'DM Sans',s
         </div>
       </div>
       <div class="form-group">
-        <label class="form-label">TLS</label>
-        <select id="tak_tls" class="form-input">
-          <option value="1" {% if cfg.get('tak_tls', True) %}selected{% endif %}>Enabled (recommended)</option>
-          <option value="0" {% if not cfg.get('tak_tls', True) %}selected{% endif %}>Disabled</option>
+        <label class="form-label">Auth Mode</label>
+        <select id="tak_auth_mode" class="form-input">
+          <option value="cert" {% if cfg.get('tak_auth_mode','plain')=='cert' %}selected{% endif %}>TLS/Cert (port 8089)</option>
+          <option value="plain" {% if cfg.get('tak_auth_mode','plain')!='cert' %}selected{% endif %}>Plain TCP (port 8087)</option>
         </select>
       </div>
       <div class="form-group">
@@ -13755,6 +13900,80 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:'DM Sans',s
     </div>
   </div>
 
+  <!-- ══════════════════════════════════════════ ICONS TAB ══ -->
+  <input type="hidden" id="icon-map-data" value="{{ (cfg.icon_map or {})|tojson }}">
+  <div id="tab-icons" class="tab-panel">
+    <div class="card">
+      <div class="card-title">Upload Iconset</div>
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px">
+        Upload any ATAK/WinTAK <code>.zip</code> iconset — must contain <code>iconset.xml</code> with a <code>uid</code> attribute.
+      </p>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <input type="file" id="icon-zip-input" accept=".zip" style="font-size:13px;color:var(--text-secondary)">
+        <button class="btn btn-primary" onclick="uploadIconset()">⬆ Upload</button>
+        <span id="upload-msg" style="font-size:12px"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Installed Iconsets</div>
+      <div id="iconset-list"><span style="color:var(--text-dim);font-size:13px">Loading…</span></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Column → Icon Mapping</div>
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px">
+        Pick a column whose values determine which icon each PLI gets. Assign an icon to each value, then set a fallback for unmapped values.
+      </p>
+      <div class="grid2" style="margin-bottom:14px">
+        <div class="form-group">
+          <label class="form-label">Mapping Column</label>
+          <input id="icon-column" class="form-input" type="text" placeholder="e.g. select_a_waypoint_of_what_you_a" value="{{ cfg.icon_column or '' }}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Enable Icon Mapping</label>
+          <select id="icon-enabled" class="form-input">
+            <option value="1" {% if cfg.get('icon_enabled') %}selected{% endif %}>Yes — inject usericon into CoT</option>
+            <option value="0" {% if not cfg.get('icon_enabled') %}selected{% endif %}>No — skip usericon element</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-bottom:18px">
+        <label class="form-label">Default Icon <span style="font-weight:400;color:var(--text-dim)">(used when value has no mapping)</span></label>
+        <div style="display:flex;gap:10px;align-items:center">
+          <input id="icon-default-path" class="form-input" type="text"
+                 placeholder="uuid/Incident Icons/Placeholder Other.png"
+                 value="{{ cfg.icon_default_path or '' }}" style="flex:1">
+          <button class="btn btn-ghost" style="white-space:nowrap" onclick="openPicker('__default__')">🖼 Pick</button>
+          <img id="preview-__default__" src="" style="width:32px;height:32px;object-fit:contain;display:none;border-radius:4px;background:rgba(255,255,255,.06)">
+        </div>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <span class="form-label" style="margin:0">Value Mappings</span>
+        <button class="btn btn-ghost" style="padding:6px 14px;font-size:12px" onclick="addMappingRow()">+ Add Row</button>
+      </div>
+      <div id="mapping-rows" style="display:flex;flex-direction:column;gap:8px"></div>
+
+      <div style="display:flex;gap:12px;align-items:center;margin-top:18px">
+        <button class="btn btn-success" onclick="saveIconMapping()">💾 Save Mapping</button>
+        <span id="icon-save-msg" style="font-size:12px"></span>
+      </div>
+    </div>
+
+    <!-- Icon picker modal -->
+    <div id="icon-picker-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;align-items:center;justify-content:center">
+      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:24px;width:min(700px,95vw);max-height:80vh;display:flex;flex-direction:column;gap:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="font-size:15px;font-weight:600">Pick an Icon</span>
+          <button class="btn btn-ghost" style="padding:6px 12px" onclick="closePicker()">✕ Close</button>
+        </div>
+        <div id="picker-grid" style="overflow-y:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:10px;padding:4px"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- ══════════════════════════════════════════ SERVICE TAB ══ -->
   <div id="tab-service" class="tab-panel">
     {% if not mod.installed %}
@@ -13831,7 +14050,7 @@ function saveConfig(){
   var payload={
     tak_host:document.getElementById('tak_host').value,
     tak_port:parseInt(document.getElementById('tak_port').value)||8089,
-    tak_tls:document.getElementById('tak_tls').value==='1',
+    tak_auth_mode:document.getElementById('tak_auth_mode').value,
     cert_password:document.getElementById('cert_password').value,
     ca_cert:document.getElementById('ca_cert').value,
     layer_url:document.getElementById('layer_url').value,
@@ -13928,6 +14147,192 @@ function uninstall(){
     .then(function(d){
       if(d.success){if(msg){msg.textContent='✓ Removed';msg.style.color='var(--green)';}setTimeout(function(){location.href='/esri-tak-sync';},1200);}
       else{if(msg){msg.textContent='✗ Failed';msg.style.color='var(--red)';}}
+    }).catch(function(){if(msg){msg.textContent='Request failed';msg.style.color='var(--red)';}});
+}
+
+/* ── Icon management ──────────────────────────────────────────────────────── */
+var _iconsets=[];        // [{uuid,name,group,icons:[{name,path}]}]
+var _mappingRows=[];     // [{col_value, iconsetpath}]
+var _pickerTarget=null;  // index into _mappingRows being edited
+
+function loadIconsets(){
+  fetch('/api/esri-tak-sync/icons/list',{credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      _iconsets=d.iconsets||[];
+      renderIconsetList();
+      renderMappingRows();
+    }).catch(function(e){
+      var el=document.getElementById('iconset-list');
+      if(el)el.innerHTML='<span style="color:var(--red);font-size:13px">Failed to load iconsets</span>';
+    });
+}
+
+function renderIconsetList(){
+  var el=document.getElementById('iconset-list');
+  if(!el)return;
+  if(!_iconsets.length){el.innerHTML='<span style="color:var(--text-dim);font-size:13px">No iconsets installed.</span>';return;}
+  var html='';
+  _iconsets.forEach(function(s){
+    html+='<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">';
+    html+='<div style="flex:1"><strong>'+s.name+'</strong> <span style="font-size:11px;color:var(--text-dim)">'+s.uuid+'</span>';
+    html+='<br><span style="font-size:12px;color:var(--text-secondary)">'+s.icons.length+' icons · group: '+s.group+'</span></div>';
+    html+='<button class="btn btn-ghost" style="padding:4px 12px;font-size:12px;color:var(--red)" onclick="deleteIconset(\''+s.uuid+'\',\''+s.name+'\')">🗑 Remove</button>';
+    html+='</div>';
+    // show first few icons as previews
+    var preview='<div style="display:flex;flex-wrap:wrap;gap:6px;padding:8px 0 4px">';
+    var shown=s.icons.slice(0,12);
+    shown.forEach(function(ic){
+      var imgPath='/api/esri-tak-sync/icons/img/'+ic.path;
+      preview+='<img src="'+imgPath+'" title="'+ic.name+'" style="width:28px;height:28px;object-fit:contain;background:var(--surface);border-radius:4px;padding:2px">';
+    });
+    if(s.icons.length>12)preview+='<span style="font-size:11px;color:var(--text-dim);align-self:center">+'+((s.icons.length-12))+' more</span>';
+    preview+='</div>';
+    html+=preview;
+  });
+  el.innerHTML=html;
+}
+
+function uploadIconset(){
+  var fi=document.getElementById('icon-zip-input');
+  if(!fi||!fi.files||!fi.files[0]){alert('Select a .zip file first');return;}
+  var fd=new FormData();
+  fd.append('file',fi.files[0]);
+  var msg=document.getElementById('upload-msg');
+  if(msg){msg.textContent='Uploading…';msg.style.color='var(--text-dim)';}
+  fetch('/api/esri-tak-sync/icons/upload',{method:'POST',body:fd,credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.success){
+        if(msg){msg.textContent='✓ Uploaded: '+d.name;msg.style.color='var(--green)';}
+        fi.value='';
+        loadIconsets();
+      } else {
+        if(msg){msg.textContent='✗ '+(d.error||'Upload failed');msg.style.color='var(--red)';}
+      }
+    }).catch(function(){if(msg){msg.textContent='Request failed';msg.style.color='var(--red)';}});
+}
+
+function deleteIconset(uuid,name){
+  if(!confirm('Remove iconset "'+name+'"?'))return;
+  fetch('/api/esri-tak-sync/icons/delete',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({uuid:uuid}),credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.success){loadIconsets();}
+      else{alert('Delete failed: '+(d.error||'unknown'));}
+    });
+}
+
+function renderMappingRows(){
+  // seed from server-side rendered hidden input on first load
+  if(!_mappingRows.length){
+    var stored=document.getElementById('icon-map-data');
+    if(stored){try{
+      var m=JSON.parse(stored.value)||{};
+      _mappingRows=Object.keys(m).map(function(k){return {col_value:k,iconsetpath:m[k]};});
+    }catch(e){_mappingRows=[];}}
+  }
+  _rebuildRowsDOM();
+}
+
+function addMappingRow(){
+  _mappingRows.push({col_value:'',iconsetpath:''});
+  _rebuildRowsDOM();
+}
+
+function _rebuildRowsDOM(){
+  var container=document.getElementById('mapping-rows');
+  if(!container)return;
+  if(!_mappingRows.length){
+    container.innerHTML='<span style="font-size:13px;color:var(--text-dim)">No mappings defined. Click "+ Add Row" to map a column value to an icon.</span>';
+    return;
+  }
+  var html='';
+  _mappingRows.forEach(function(row,i){
+    var previewUrl=row.iconsetpath?'/api/esri-tak-sync/icons/img/'+row.iconsetpath:'';
+    html+='<div style="display:flex;align-items:center;gap:10px;background:var(--surface);padding:10px;border-radius:6px">';
+    html+='<input type="text" placeholder="Column value" value="'+_esc(row.col_value)+'" style="flex:1;min-width:0"'
+         +' onchange="_mappingRows['+i+'].col_value=this.value">';
+    html+='<div style="display:flex;align-items:center;gap:8px;cursor:pointer;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--bg)" onclick="openPicker('+i+')">';
+    if(previewUrl){
+      html+='<img src="'+previewUrl+'" style="width:24px;height:24px;object-fit:contain">';
+    }
+    var label=row.iconsetpath?row.iconsetpath.split('/').pop():'Select icon…';
+    html+='<span style="font-size:12px;color:var(--text-secondary)">'+_esc(label)+'</span>';
+    html+='</div>';
+    html+='<button class="btn btn-ghost" style="padding:4px 10px;font-size:12px;color:var(--red)" onclick="_mappingRows.splice('+i+',1);_rebuildRowsDOM()">✕</button>';
+    html+='</div>';
+  });
+  container.innerHTML=html;
+}
+
+function _esc(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');}
+
+function openPicker(rowIdx){
+  _pickerTarget=rowIdx;
+  var modal=document.getElementById('icon-picker-modal');
+  var grid=document.getElementById('picker-grid');
+  if(!modal||!grid)return;
+  // build icon grid from all installed iconsets
+  var html='';
+  _iconsets.forEach(function(s){
+    html+='<div style="font-size:12px;font-weight:600;color:var(--text-secondary);padding:8px 0 4px;grid-column:1/-1">'+s.name+'</div>';
+    s.icons.forEach(function(ic){
+      var imgPath='/api/esri-tak-sync/icons/img/'+ic.path;
+      html+='<div onclick="pickIcon(\''+ic.path+'\')" title="'+_esc(ic.name)+'" '
+           +'style="display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--surface)">'
+           +'<img src="'+imgPath+'" style="width:32px;height:32px;object-fit:contain">'
+           +'<span style="font-size:10px;color:var(--text-secondary);text-align:center;word-break:break-word">'+_esc(ic.name)+'</span>'
+           +'</div>';
+    });
+  });
+  if(!html)html='<p style="color:var(--text-dim);font-size:13px;grid-column:1/-1">No iconsets installed. Upload one in the Upload card above.</p>';
+  grid.innerHTML=html;
+  modal.style.display='flex';
+}
+
+function closePicker(){
+  var modal=document.getElementById('icon-picker-modal');
+  if(modal)modal.style.display='none';
+  _pickerTarget=null;
+}
+
+function pickIcon(iconsetpath){
+  if(_pickerTarget==='__default__'){
+    var el=document.getElementById('icon-default-path');
+    if(el){el.value=iconsetpath;}
+    var prev=document.getElementById('preview-__default__');
+    if(prev){prev.src='/api/esri-tak-sync/icons/img/'+iconsetpath;prev.style.display='';}
+  } else if(_pickerTarget!==null&&_mappingRows[_pickerTarget]!==undefined){
+    _mappingRows[_pickerTarget].iconsetpath=iconsetpath;
+    _rebuildRowsDOM();
+  }
+  closePicker();
+}
+
+function saveIconMapping(){
+  var enabled=document.getElementById('icon-enabled');
+  var colField=document.getElementById('icon-column');
+  var defPath=document.getElementById('icon-default-path');
+  var msg=document.getElementById('icon-save-msg');
+  var payload={
+    enabled: enabled?(enabled.value==='1'):false,
+    column: colField?colField.value.trim():'',
+    default_iconsetpath: defPath?defPath.value.trim():'',
+    map: {}
+  };
+  _mappingRows.forEach(function(r){
+    if(r.col_value&&r.iconsetpath)payload.map[r.col_value]=r.iconsetpath;
+  });
+  if(msg){msg.textContent='Saving…';msg.style.color='var(--text-dim)';}
+  fetch('/api/esri-tak-sync/icons/save-mapping',{method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(payload),credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.success){if(msg){msg.textContent='✓ Saved';msg.style.color='var(--green)';}}
+      else{if(msg){msg.textContent='✗ '+(d.error||'Save failed');msg.style.color='var(--red)';}}
     }).catch(function(){if(msg){msg.textContent='Request failed';msg.style.color='var(--red)';}});
 }
 
