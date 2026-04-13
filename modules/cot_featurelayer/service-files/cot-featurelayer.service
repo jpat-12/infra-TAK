@@ -1,0 +1,16 @@
+[Unit]
+Description=CoT-FeatureLayer — TAK Server CoT to Esri Feature Layer
+After=network.target
+
+[Service]
+ExecStart=/root/miniconda/envs/arcgis_env/bin/python /opt/CoT-FeatureLayer/cot-to-feature-layer.py
+WorkingDirectory=/opt/CoT-FeatureLayer
+StandardOutput=file:/var/log/cot-featurelayer.log
+StandardError=file:/var/log/cot-featurelayer.log
+Restart=on-failure
+RestartSec=10
+User=root
+Environment=COT_FL_CONFIG=/opt/CoT-FeatureLayer/config.json
+
+[Install]
+WantedBy=multi-user.target
