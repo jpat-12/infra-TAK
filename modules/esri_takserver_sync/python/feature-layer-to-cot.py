@@ -65,6 +65,19 @@ DEFAULT_CONFIG = {
     "delta": {
         "enabled": True,
         "track_field": "EditDate"   # set to "" to send all records every poll
+    },
+    "icon_mapping": {
+        "enabled": False,
+        # Column whose value selects the icon
+        "column": "",
+        # Iconset UUID from iconset.xml
+        "iconset_uuid": "412c43f948b1664a3a0b513336b6c32382b13289a6ed2e91dd31e23d9d52a683",
+        # Subfolder inside the iconset zip
+        "iconset_group": "Incident Icons",
+        # Fallback icon when a value has no mapping
+        "default_icon": "Placeholder Other.png",
+        # value → icon filename (just the filename, not the full path)
+        "map": {}
     }
 }
 
@@ -233,12 +246,13 @@ def _fmt_time(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
-def build_cot(feature: dict, fm: dict, cot_cfg: dict) -> str:
+def build_cot(feature: dict, fm: dict, cot_cfg: dict, icon_cfg: dict | None = None) -> str:
     """
     Build a CoT XML string from a single Feature Layer record.
 
-    fm      = cfg["field_mapping"]
-    cot_cfg = cfg["cot"]
+    fm       = cfg["field_mapping"]
+    cot_cfg  = cfg["cot"]
+    icon_cfg = cfg["icon_mapping"]  (optional)
     """
     attrs = feature.get("attributes", {})
     geom  = feature.get("geometry", {})
@@ -285,6 +299,16 @@ def build_cot(feature: dict, fm: dict, cot_cfg: dict) -> str:
             remark_parts.append(f"{field}: {val}")
     remarks = ", ".join(remark_parts)
 
+    # ── Icon ──────────────────────────────────────────────────────────────────
+    usericon_xml = ""
+    if icon_cfg and icon_cfg.get("enabled") and icon_cfg.get("column"):
+        col_val      = str(attrs.get(icon_cfg["column"], "")).strip()
+        icon_file    = icon_cfg.get("map", {}).get(col_val) or icon_cfg.get("default_icon", "Placeholder Other.png")
+        uuid         = icon_cfg.get("iconset_uuid", "")
+        group        = icon_cfg.get("iconset_group", "Incident Icons")
+        iconsetpath  = f"{uuid}/{group}/{icon_file}"
+        usericon_xml = f'<usericon iconsetpath="{iconsetpath}" />'
+
     return (
         f'<event version="2.0" uid="{uid}" type="{cot_type}" '
         f'time="{_fmt_time(now)}" start="{_fmt_time(now)}" stale="{_fmt_time(stale)}" '
@@ -292,6 +316,7 @@ def build_cot(feature: dict, fm: dict, cot_cfg: dict) -> str:
         f'<point lat="{lat}" lon="{lon}" hae="{hae}" ce="10.0" le="2.0" />'
         f'<detail>'
         f'<contact callsign="{callsign}" />'
+        f'{usericon_xml}'
         f'<remarks>{remarks}</remarks>'
         f'<track speed="0" course="0" />'
         f'</detail>'
@@ -523,6 +548,7 @@ def main():
     poll_interval = int(fl_cfg.get("poll_interval", 30))
     fm            = cfg["field_mapping"]
     cot_cfg       = cfg["cot"]
+    icon_cfg      = cfg.get("icon_mapping", {})
     delta         = DeltaTracker(
         cfg["delta"].get("enabled", True),
         cfg["delta"].get("track_field", "EditDate")
@@ -550,7 +576,7 @@ def main():
                 uid_val = attrs.get(fm.get("uid_field", "OBJECTID"), "unknown")
                 uid     = f"{fm.get('uid_prefix', 'EsriSync')}_{uid_val}"
                 if delta.is_new_or_changed(uid, attrs):
-                    cot = build_cot(feat, fm, cot_cfg)
+                    cot = build_cot(feat, fm, cot_cfg, icon_cfg)
                     tak.send(cot)
                     sent += 1
             delta.commit()
