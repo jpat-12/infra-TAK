@@ -14,6 +14,7 @@ import sys
 import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from xml.sax.saxutils import escape as _xml_escape, quoteattr as _xml_quoteattr
 
 import requests
 
@@ -308,17 +309,17 @@ def build_cot(feature: dict, fm: dict, cot_cfg: dict, icon_cfg: dict | None = No
             or icon_cfg.get("default_iconsetpath", "")
         )
         if iconsetpath:
-            usericon_xml = f'<usericon iconsetpath="{iconsetpath}" />'
+            usericon_xml = f'<usericon iconsetpath={_xml_quoteattr(iconsetpath)} />'
 
     return (
-        f'<event version="2.0" uid="{uid}" type="{cot_type}" '
+        f'<event version="2.0" uid="{_xml_escape(uid)}" type="{_xml_escape(cot_type)}" '
         f'time="{_fmt_time(now)}" start="{_fmt_time(now)}" stale="{_fmt_time(stale)}" '
-        f'how="{how}">'
+        f'how="{_xml_escape(how)}">'
         f'<point lat="{lat}" lon="{lon}" hae="{hae}" ce="10.0" le="2.0" />'
         f'<detail>'
-        f'<contact callsign="{callsign}" />'
+        f'<contact callsign={_xml_quoteattr(callsign)} />'
         f'{usericon_xml}'
-        f'<remarks>{remarks}</remarks>'
+        f'<remarks>{_xml_escape(remarks)}</remarks>'
         f'<track speed="0" course="0" />'
         f'</detail>'
         f'</event>'
