@@ -2,11 +2,33 @@
 
 After every `docker cp flows.json` + `docker restart nodered`, you need to reconfigure these settings in the Node-RED editor. Copy-paste from below.
 
+Node-RED uses **two separate TLS configs** to isolate streaming from the Mission API:
+- **TAK Mission API TLS** (admin cert) — for PUT/DELETE/GET on port 8443
+- **TAK Stream TLS** (restricted cert) — for CoT TCP streaming on port 7001
+
 ---
 
-## 1. TLS Config Node (TAK Server TLS)
+## 1. TLS Config: Mission API (admin cert — 8443)
 
-Double-click any HTTP Request or TCP Out node → click the pencil icon next to the TLS config.
+Double-click any HTTP Request node → click the pencil icon next to TLS → select **TAK Mission API TLS**.
+
+**Certificate:**
+```
+/certs/admin.pem
+```
+
+**Private Key:**
+```
+/certs/admin.key
+```
+
+Leave CA blank. Uncheck "Verify server certificate".
+
+---
+
+## 2. TLS Config: TCP Streaming (restricted cert — 7001)
+
+Double-click the "CoT stream to TAK" TCP out node → click the pencil icon next to TLS → select **TAK Stream TLS**.
 
 **Certificate:**
 ```
@@ -20,9 +42,11 @@ Double-click any HTTP Request or TCP Out node → click the pencil icon next to 
 
 Leave CA blank. Uncheck "Verify server certificate".
 
+This cert must be in the streaming input's filter group (e.g. DATA-FEED) but **not** in a group that field users match — prevents CoT from leaking to devices that haven't subscribed to the Data Sync mission.
+
 ---
 
-## 2. TCP Out Node (CoT stream to TAK)
+## 3. TCP Out Node (CoT stream to TAK)
 
 Double-click the "CoT stream to TAK" tcp out node.
 
@@ -33,15 +57,15 @@ host.docker.internal
 
 **Port:**
 ```
-8089
+7001
 ```
 
 **Type:** Connect to  
-**TLS:** TAK Server TLS (same config from step 1)
+**TLS:** TAK Stream TLS (restricted cert from step 2)
 
 ---
 
-## 3. Re-save Configurator Settings
+## 4. Re-save Configurator Settings
 
 Go to:
 ```
@@ -55,12 +79,12 @@ This restores flow context that gets wiped on container restart.
 
 ---
 
-## 4. Deploy
+## 5. Deploy
 
 Hit the **Deploy** button in the Node-RED editor.
 
 Wait ~30 seconds for the auto-poll to fire. Check the debug sidebar for:
-- `SA ident sent for uid: nodered-global-airdata`
+- `SA ident sent for uid: admin`
 - `CA AIR INTEL: 10 CoT events built from 10 features`
 - `CA AIR INTEL reconcile: 10 streamed, 0 PUT, 0 DELETE...`
 
