@@ -374,21 +374,31 @@ class TAKClient:
     # ── Health check ──────────────────────────────────────────────────────────
 
     def is_alive(self) -> bool:
-        """Non-destructive check: returns False if the server has closed the socket."""
+        """
+        Check if the connection is still open.
+        Uses select() so it works on both plain and SSL sockets
+        (SSL sockets don't support MSG_PEEK).
+        """
         if not self._sock:
             return False
         try:
-            self._sock.setblocking(False)
-            data = self._sock.recv(1, socket.MSG_PEEK)
-            self._sock.setblocking(True)
-            # recv returned 0 bytes → clean close by peer
-            return len(data) > 0
-        except BlockingIOError:
-            # No data waiting, but socket is still open — healthy
-            self._sock.setblocking(True)
-            return True
+            import select as _select
+            readable, _, _ = _select.select([self._sock], [], [], 0)
+            if not readable:
+                return True          # nothing waiting — socket is healthy
+            # Data (or EOF) is pending — do a real recv to distinguish
+            old_timeout = self._sock.gettimeout()
+            self._sock.settimeout(0.1)
+            try:
+                data = self._sock.recv(1)
+                return len(data) > 0  # 0 bytes == clean close by peer
+            except (BlockingIOError, ssl.SSLWantReadError):
+                return True           # would block — still open
+            except (OSError, ssl.SSLError):
+                return False
+            finally:
+                self._sock.settimeout(old_timeout)
         except (OSError, ssl.SSLError):
-            self._sock.setblocking(True)
             return False
 
     # ── Send ──────────────────────────────────────────────────────────────────
