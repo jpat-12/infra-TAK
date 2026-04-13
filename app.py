@@ -13864,7 +13864,7 @@ function pollLog(){
     .then(function(r){return r.json();})
     .then(function(d){
       var box=document.getElementById('deploy-log-box');
-      if(box&&d.entries&&d.entries.length>0){box.textContent+=(box.textContent?'\n':'')+d.entries.join('\n');box.scrollTop=box.scrollHeight;}
+      if(box&&d.entries&&d.entries.length>0){box.textContent+=(box.textContent?'\\n':'')+d.entries.join('\\n');box.scrollTop=box.scrollHeight;}
       _logIdx=d.total;
       var btn=document.getElementById('deploy-btn');
       var msg=document.getElementById('deploy-status-msg');
