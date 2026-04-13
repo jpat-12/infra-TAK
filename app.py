@@ -804,6 +804,21 @@ def detect_modules():
     modules['tak_esri'] = {'name': 'TAK-Esri', 'installed': tak_esri_p1, 'phase2_installed': tak_esri_p2,
         'running': tak_esri_running,
         'description': 'Survey123 ↔ TAK Server ↔ ArcGIS bidirectional bridge', 'icon': '🌐', 'route': '/tak-esri', 'priority': 9}
+    # Esri-TAKServer-Sync — Feature Layer → TAK Server CoT broadcaster
+    esri_tak_installed = os.path.exists('/opt/Esri-TAKServer-Sync/feature-layer-to-cot.py')
+    esri_tak_running = False
+    if esri_tak_installed:
+        r = subprocess.run(['systemctl', 'is-active', 'feature-layer-to-cot.service'], capture_output=True, text=True)
+        esri_tak_running = r.stdout.strip() == 'active'
+    modules['esri_takserver_sync'] = {
+        'name': 'Esri-TAKServer-Sync',
+        'installed': esri_tak_installed,
+        'running': esri_tak_running,
+        'description': 'Broadcasts Esri Feature Layer records as CoT to TAK Server',
+        'icon': '🗺️',
+        'route': '/esri-tak-sync',
+        'priority': 10
+    }
     return dict(sorted(modules.items(), key=lambda x: x[1].get('priority', 99)))
 
 def render_sidebar(modules, active_path, takwerx_logo_url=None):
@@ -852,6 +867,9 @@ def render_sidebar(modules, active_path, takwerx_logo_url=None):
         parts.append(link('/tak-esri', '<span class="nav-icon" style="font-size:20px;line-height:1">🌐</span><span>TAK-Esri</span>', 'TAK-Esri Integration'))
     if esri.get('phase2_installed'):
         parts.append(link('/tak-esri/pipeline', '<span class="nav-icon" style="font-size:14px;line-height:1;padding-left:8px">↳</span><span>Pipeline</span>', 'TAK-Esri Pipeline'))
+    esri_sync = modules.get('esri_takserver_sync', {})
+    if esri_sync.get('installed'):
+        parts.append(link('/esri-tak-sync', '<span class="nav-icon" style="font-size:18px;line-height:1">🗺️</span><span>Esri-TAK Sync</span>', 'Esri-TAKServer-Sync'))
     parts.append(link('/marketplace', '<span class="nav-icon material-symbols-outlined">shopping_cart</span>Marketplace'))
     parts.append(link('/help', '<span class="nav-icon material-symbols-outlined">help</span>Help'))
     parts.append(
@@ -13154,6 +13172,744 @@ function appendControl(action){
       var elAppend=document.getElementById('st-append');
       if(elAppend){elAppend.textContent=st;elAppend.style.color=st==='active'?'var(--green)':st==='failed'?'var(--red)':'var(--yellow)';}
       if(msg){msg.textContent=d.success?'Done':'Failed';msg.style.color=d.success?'var(--green)':'var(--red)';setTimeout(function(){msg.textContent='';},2500);}
+    }).catch(function(){if(msg){msg.textContent='Request failed';msg.style.color='var(--red)';}});
+}
+
+{% if deploying %}
+_logPoll=setInterval(pollLog,1200);
+{% endif %}
+</script>
+</body></html>'''
+
+
+# ── Esri-TAKServer-Sync ───────────────────────────────────────────────────────
+ESRI_TAK_SYNC_DIR     = '/opt/Esri-TAKServer-Sync'
+ESRI_TAK_SYNC_SERVICE = 'feature-layer-to-cot'
+_esri_tak_sync_install_log    = []
+_esri_tak_sync_install_status = {'running': False, 'complete': False, 'error': False}
+
+
+def _esri_tak_sync_load_config():
+    s = load_settings()
+    return s.get('esri_takserver_sync', {})
+
+
+def _esri_tak_sync_save_config(cfg):
+    s = load_settings()
+    s['esri_takserver_sync'] = cfg
+    save_settings(s)
+
+
+def _run_esri_tak_sync_install():
+    import shutil as _shutil, stat as _stat
+    log    = _esri_tak_sync_install_log
+    status = _esri_tak_sync_install_status
+
+    def plog(msg):
+        entry = f"[{datetime.now().strftime('%H:%M:%S')}] {msg}"
+        log.append(entry)
+        print(entry, flush=True)
+
+    try:
+        cfg      = _esri_tak_sync_load_config()
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        src_py   = os.path.join(base_dir, 'modules', 'esri_takserver_sync', 'python')
+        src_svc  = os.path.join(base_dir, 'modules', 'esri_takserver_sync', 'service-files')
+
+        # Step 1: pip install requests
+        plog("━━━ Step 1/5: Installing Python dependencies ━━━")
+        r = subprocess.run(['pip3', 'install', 'requests'],
+                           capture_output=True, text=True, timeout=120)
+        if r.returncode != 0:
+            plog(f"  ⚠ pip3 returned {r.returncode}: {(r.stderr or r.stdout or '')[:300]}")
+        else:
+            plog("  ✓ requests installed")
+
+        # Step 2: Copy scripts
+        plog("")
+        plog("━━━ Step 2/5: Copying scripts ━━━")
+        os.makedirs(ESRI_TAK_SYNC_DIR, exist_ok=True)
+        for fname in ('feature-layer-to-cot.py', 'setup-cert.py'):
+            src = os.path.join(src_py, fname)
+            dst = os.path.join(ESRI_TAK_SYNC_DIR, fname)
+            if os.path.exists(src):
+                _shutil.copy2(src, dst)
+                plog(f"  ✓ {fname}")
+            else:
+                plog(f"  ⚠ Not found: {src}")
+
+        # Step 3: Write config.json
+        plog("")
+        plog("━━━ Step 3/5: Writing config.json ━━━")
+        config_path = os.path.join(ESRI_TAK_SYNC_DIR, 'config.json')
+        config_data = {
+            "tak_server": {
+                "host":          (cfg.get('tak_host') or 'localhost').strip(),
+                "port":          int(cfg.get('tak_port') or 8089),
+                "tls":           bool(cfg.get('tak_tls', True)),
+                "cert_path":     os.path.join(ESRI_TAK_SYNC_DIR, 'certs', 'esri-push.p12'),
+                "cert_password": (cfg.get('cert_password') or '').strip(),
+                "ca_cert":       (cfg.get('ca_cert') or '').strip()
+            },
+            "feature_layer": {
+                "url":           (cfg.get('layer_url') or '').strip(),
+                "public":        bool(cfg.get('layer_public', True)),
+                "layer_type":    (cfg.get('layer_type') or 'online').strip(),
+                "username":      (cfg.get('esri_username') or '').strip(),
+                "password":      (cfg.get('esri_password') or '').strip(),
+                "portal_url":    (cfg.get('portal_url') or '').strip(),
+                "poll_interval": int(cfg.get('poll_interval') or 30),
+                "page_size":     int(cfg.get('page_size') or 1000)
+            },
+            "field_mapping": {
+                "lat":            (cfg.get('lat_field') or '').strip(),
+                "lon":            (cfg.get('lon_field') or '').strip(),
+                "uid_field":      (cfg.get('uid_field') or 'OBJECTID').strip(),
+                "uid_prefix":     (cfg.get('uid_prefix') or 'EsriSync').strip(),
+                "callsign_field": (cfg.get('callsign_field') or '').strip(),
+                "cot_type":       (cfg.get('cot_type') or 'a-f-G').strip(),
+                "altitude_field": (cfg.get('altitude_field') or '').strip(),
+                "remarks_fields": [f.strip() for f in (cfg.get('remarks_fields') or '').split(',') if f.strip()]
+            },
+            "cot": {
+                "stale_minutes": int(cfg.get('stale_minutes') or 5),
+                "how":           (cfg.get('cot_how') or 'm-g').strip()
+            },
+            "delta": {
+                "enabled":     bool(cfg.get('delta_enabled', True)),
+                "track_field": (cfg.get('delta_field') or 'EditDate').strip()
+            }
+        }
+        with open(config_path, 'w') as f:
+            json.dump(config_data, f, indent=2)
+        plog("  ✓ config.json written")
+
+        # Step 4: Generate self-signed cert if none exists
+        cert_dir = os.path.join(ESRI_TAK_SYNC_DIR, 'certs')
+        p12_path = os.path.join(cert_dir, 'esri-push.p12')
+        key_pem  = os.path.join(cert_dir, 'esri-push-key.pem')
+        cert_pem = os.path.join(cert_dir, 'esri-push-cert.pem')
+        plog("")
+        plog("━━━ Step 4/5: Certificate ━━━")
+        if not os.path.exists(p12_path):
+            os.makedirs(cert_dir, exist_ok=True)
+            r = subprocess.run(
+                ['openssl', 'req', '-x509', '-newkey', 'rsa:4096',
+                 '-keyout', key_pem, '-out', cert_pem,
+                 '-days', '365', '-nodes', '-subj', '/CN=esri-push/O=EsriTAKSync'],
+                capture_output=True, text=True, timeout=120)
+            if r.returncode != 0:
+                plog(f"  ⚠ openssl failed: {r.stderr[:200]}")
+            else:
+                r2 = subprocess.run(
+                    ['openssl', 'pkcs12', '-export',
+                     '-out', p12_path, '-inkey', key_pem, '-in', cert_pem,
+                     '-name', 'esri-push', '-passout', 'pass:'],
+                    capture_output=True, text=True, timeout=60)
+                if r2.returncode == 0:
+                    os.chmod(key_pem,  _stat.S_IRUSR | _stat.S_IWUSR)
+                    os.chmod(p12_path, _stat.S_IRUSR | _stat.S_IWUSR)
+                    plog("  ✓ Self-signed cert generated")
+                    plog(f"    {p12_path}")
+                    plog("  ⚠ Add certs/esri-push-cert.pem to TAK Server trusted clients")
+                else:
+                    plog(f"  ⚠ .p12 bundle failed: {r2.stderr[:200]}")
+        else:
+            plog(f"  ✓ Existing cert found — skipping generation")
+
+        # Step 5: Install systemd service
+        plog("")
+        plog("━━━ Step 5/5: systemd service ━━━")
+        svc_src = os.path.join(src_svc, 'feature-layer-to-cot.service')
+        svc_dst = '/etc/systemd/system/feature-layer-to-cot.service'
+        if os.path.exists(svc_src):
+            _shutil.copy2(svc_src, svc_dst)
+            subprocess.run(['systemctl', 'daemon-reload'], capture_output=True, timeout=30)
+            plog("  ✓ feature-layer-to-cot.service installed")
+            plog("  Service not auto-started — configure TAK cert, then click Start")
+        else:
+            plog(f"  ⚠ Service file not found: {svc_src}")
+
+        plog("")
+        plog("━━━ Install complete ━━━")
+        plog("  Next: 1) Add certs/esri-push-cert.pem to TAK Server trusted clients")
+        plog("        2) Enter Feature Layer URL on the Config tab, save")
+        plog("        3) Click Start on the Service tab")
+        status.update({'running': False, 'complete': True, 'error': False})
+
+    except Exception as e:
+        plog(f"✗ Fatal error: {e}")
+        status.update({'running': False, 'error': True})
+
+
+@app.route('/esri-tak-sync')
+@login_required
+def esri_tak_sync_page():
+    settings   = load_settings()
+    modules    = detect_modules()
+    mod        = modules.get('esri_takserver_sync', {})
+    cfg        = _esri_tak_sync_load_config()
+    svc_active = False
+    if mod.get('installed'):
+        r = subprocess.run(['systemctl', 'is-active', 'feature-layer-to-cot.service'],
+                           capture_output=True, text=True)
+        svc_active = r.stdout.strip() == 'active'
+    log_tail = ''
+    log_path = '/var/log/esri-takserver-sync-feature-layer-to-cot.log'
+    if os.path.exists(log_path):
+        try:
+            with open(log_path) as f:
+                lines = f.readlines()
+            log_tail = ''.join(lines[-50:])
+        except Exception:
+            pass
+    cert_pem = os.path.join(ESRI_TAK_SYNC_DIR, 'certs', 'esri-push-cert.pem')
+    cert_exists = os.path.exists(cert_pem)
+    return make_response(render_template_string(ESRI_TAK_SYNC_TEMPLATE,
+        settings=settings, mod=mod, cfg=cfg,
+        svc_active=svc_active, log_tail=log_tail,
+        cert_exists=cert_exists, cert_pem_path=cert_pem,
+        install_dir=ESRI_TAK_SYNC_DIR, version=VERSION,
+        deploying=_esri_tak_sync_install_status.get('running', False),
+        deploy_done=_esri_tak_sync_install_status.get('complete', False),
+        deploy_error=_esri_tak_sync_install_status.get('error', False)))
+
+
+@app.route('/api/esri-tak-sync/save-config', methods=['POST'])
+@login_required
+def esri_tak_sync_save_config():
+    data = request.get_json(silent=True) or {}
+    cfg  = _esri_tak_sync_load_config()
+    for key in ['tak_host', 'tak_port', 'tak_tls', 'cert_password', 'ca_cert',
+                'layer_url', 'layer_public', 'layer_type', 'esri_username',
+                'esri_password', 'portal_url', 'poll_interval', 'page_size',
+                'lat_field', 'lon_field', 'uid_field', 'uid_prefix',
+                'callsign_field', 'cot_type', 'altitude_field', 'remarks_fields',
+                'stale_minutes', 'cot_how', 'delta_enabled', 'delta_field']:
+        if key in data:
+            cfg[key] = data[key]
+    _esri_tak_sync_save_config(cfg)
+    # Patch live config.json if already installed
+    config_path = os.path.join(ESRI_TAK_SYNC_DIR, 'config.json')
+    if os.path.exists(config_path):
+        try:
+            with open(config_path) as f:
+                existing = json.load(f)
+            ts = existing.setdefault('tak_server', {})
+            fl = existing.setdefault('feature_layer', {})
+            fm = existing.setdefault('field_mapping', {})
+            dt = existing.setdefault('delta', {})
+            if cfg.get('tak_host'):      ts['host'] = cfg['tak_host'].strip()
+            if cfg.get('tak_port'):      ts['port'] = int(cfg['tak_port'])
+            if 'tak_tls' in cfg:         ts['tls']  = bool(cfg['tak_tls'])
+            if cfg.get('layer_url'):     fl['url']  = cfg['layer_url'].strip()
+            if cfg.get('layer_type'):    fl['layer_type'] = cfg['layer_type'].strip()
+            if 'layer_public' in cfg:    fl['public'] = bool(cfg['layer_public'])
+            if cfg.get('esri_username'): fl['username'] = cfg['esri_username'].strip()
+            if cfg.get('esri_password'): fl['password'] = cfg['esri_password'].strip()
+            if cfg.get('poll_interval'): fl['poll_interval'] = int(cfg['poll_interval'])
+            if cfg.get('uid_field'):     fm['uid_field'] = cfg['uid_field'].strip()
+            if cfg.get('cot_type'):      fm['cot_type']  = cfg['cot_type'].strip()
+            if 'delta_enabled' in cfg:   dt['enabled'] = bool(cfg['delta_enabled'])
+            if cfg.get('delta_field'):   dt['track_field'] = cfg['delta_field'].strip()
+            with open(config_path, 'w') as f:
+                json.dump(existing, f, indent=2)
+        except Exception:
+            pass
+    return jsonify({'success': True})
+
+
+@app.route('/api/esri-tak-sync/install', methods=['POST'])
+@login_required
+def esri_tak_sync_install():
+    if _esri_tak_sync_install_status.get('running'):
+        return jsonify({'error': 'Installation already in progress'}), 409
+    data = request.get_json(silent=True) or {}
+    if data.get('config'):
+        _esri_tak_sync_save_config(data['config'])
+    _esri_tak_sync_install_log.clear()
+    _esri_tak_sync_install_status.update({'running': True, 'complete': False, 'error': False})
+    threading.Thread(target=_run_esri_tak_sync_install, daemon=True).start()
+    return jsonify({'success': True})
+
+
+@app.route('/api/esri-tak-sync/install/log')
+@login_required
+def esri_tak_sync_install_log():
+    idx = request.args.get('index', 0, type=int)
+    return jsonify({
+        'entries': _esri_tak_sync_install_log[idx:],
+        'total':   len(_esri_tak_sync_install_log),
+        'running': _esri_tak_sync_install_status['running'],
+        'complete':_esri_tak_sync_install_status['complete'],
+        'error':   _esri_tak_sync_install_status['error'],
+    })
+
+
+@app.route('/api/esri-tak-sync/service-status')
+@login_required
+def esri_tak_sync_service_status():
+    r  = subprocess.run(['systemctl', 'is-active', 'feature-layer-to-cot.service'],
+                        capture_output=True, text=True)
+    st = r.stdout.strip() or 'unknown'
+    return jsonify({'active': st == 'active', 'status': st})
+
+
+@app.route('/api/esri-tak-sync/service-control', methods=['POST'])
+@login_required
+def esri_tak_sync_service_control():
+    data   = request.get_json(silent=True) or {}
+    action = (data.get('action') or '').strip()
+    if action not in ('start', 'stop', 'restart'):
+        return jsonify({'error': 'Invalid action'}), 400
+    r = subprocess.run(['systemctl', action, 'feature-layer-to-cot.service'],
+                       capture_output=True, text=True, timeout=30)
+    return jsonify({'success': r.returncode == 0, 'output': (r.stdout + r.stderr).strip()})
+
+
+@app.route('/api/esri-tak-sync/uninstall', methods=['POST'])
+@login_required
+def esri_tak_sync_uninstall():
+    import shutil as _shutil
+    for cmd in ('stop', 'disable'):
+        subprocess.run(['systemctl', cmd, 'feature-layer-to-cot.service'],
+                       capture_output=True, timeout=15)
+    svc_dst = '/etc/systemd/system/feature-layer-to-cot.service'
+    if os.path.exists(svc_dst):
+        os.remove(svc_dst)
+    subprocess.run(['systemctl', 'daemon-reload'], capture_output=True, timeout=30)
+    if os.path.exists(ESRI_TAK_SYNC_DIR):
+        _shutil.rmtree(ESRI_TAK_SYNC_DIR)
+    return jsonify({'success': True})
+
+
+ESRI_TAK_SYNC_TEMPLATE = '''<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Esri-TAK Sync — infra-TAK</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet">
+<style>
+:root{--bg-deep:#080b14;--bg-surface:#0f1219;--bg-card:#161b26;--border:#1e2736;--text-primary:#f1f5f9;--text-secondary:#cbd5e1;--text-dim:#94a3b8;--accent:#3b82f6;--cyan:#06b6d4;--green:#10b981;--red:#ef4444;--yellow:#eab308}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg-deep);color:var(--text-primary);font-family:'DM Sans',sans-serif;min-height:100vh;display:flex;flex-direction:row}
+.sidebar{width:220px;min-width:220px;background:var(--bg-surface);border-right:1px solid var(--border);padding:24px 0;flex-shrink:0}
+.material-symbols-outlined{font-family:'Material Symbols Outlined';font-weight:400;font-style:normal;font-size:20px;line-height:1;letter-spacing:normal;white-space:nowrap;direction:ltr;-webkit-font-smoothing:antialiased}
+.nav-icon.material-symbols-outlined{font-size:22px;width:22px;text-align:center}
+.sidebar-logo{padding:0 20px 24px;border-bottom:1px solid var(--border);margin-bottom:16px}
+.sidebar-logo span{font-size:15px;font-weight:700}.sidebar-logo small{display:block;font-size:10px;color:var(--text-dim);font-family:'JetBrains Mono',monospace;margin-top:2px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 20px;color:var(--text-secondary);text-decoration:none;font-size:13px;font-weight:500;transition:all .15s;border-left:2px solid transparent}
+.nav-item:hover{color:var(--text-primary);background:rgba(255,255,255,.03)}.nav-item.active{color:var(--cyan);background:rgba(6,182,212,.06);border-left-color:var(--cyan)}
+.nav-icon{font-size:15px;width:18px;text-align:center}
+.main{flex:1;min-width:0;overflow-y:auto;padding:32px}
+.page-header{margin-bottom:28px}.page-header h1{font-size:22px;font-weight:700}.page-header p{color:var(--text-secondary);font-size:13px;margin-top:4px}
+.card{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:20px}
+.card-title{font-size:13px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.08em;margin-bottom:16px}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:10px 20px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:opacity .15s}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn-primary{background:var(--accent);color:#fff}.btn-success{background:var(--green);color:#fff}
+.btn-ghost{background:rgba(255,255,255,.05);color:var(--text-secondary);border:1px solid var(--border)}
+.btn-danger{background:var(--red);color:#fff}
+.form-label{display:block;font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px}
+.form-input{width:100%;background:#0a0e1a;border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text-primary);font-size:13px;font-family:inherit}
+.form-input:focus{outline:none;border-color:var(--accent)}
+.form-group{margin-bottom:14px}
+.log-box{background:#070a12;border:1px solid var(--border);border-radius:8px;padding:16px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-dim);max-height:380px;overflow-y:auto;white-space:pre-wrap;line-height:1.6}
+.tab-bar{display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:20px}
+.tab{padding:9px 18px;font-size:13px;font-weight:500;cursor:pointer;color:var(--text-dim);border-bottom:2px solid transparent;background:none;border-top:none;border-left:none;border-right:none;transition:all .15s}
+.tab.active{color:var(--cyan);border-bottom-color:var(--cyan)}
+.tab-panel{display:none}.tab-panel.active{display:block}
+.hint{font-size:12px;color:var(--text-dim);margin-top:6px}
+.status-pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:4px 10px;border-radius:20px}
+.pill-active{background:rgba(16,185,129,.12);color:var(--green);border:1px solid rgba(16,185,129,.2)}
+.pill-inactive{background:rgba(234,179,8,.1);color:var(--yellow);border:1px solid rgba(234,179,8,.2)}
+.pill-unknown{background:rgba(148,163,184,.08);color:var(--text-dim);border:1px solid var(--border)}
+.dot{width:7px;height:7px;border-radius:50%;background:currentColor;flex-shrink:0}
+.info-row{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px}
+.info-row:last-child{border-bottom:none}
+.warn-card{background:rgba(234,179,8,.05);border:1px solid rgba(234,179,8,.25);border-radius:10px;padding:14px 18px;font-size:13px;color:var(--yellow);margin-bottom:16px}
+.ok-card{background:rgba(16,185,129,.05);border:1px solid rgba(16,185,129,.2);border-radius:10px;padding:14px 18px;font-size:13px;color:var(--green);margin-bottom:16px}
+.section-title{font-size:12px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:.08em;margin:20px 0 12px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:700px){.grid2{grid-template-columns:1fr}}
+</style></head>
+<body>
+{{ sidebar_html }}
+<div class="main">
+  <div class="page-header">
+    <h1>🗺️ Esri-TAK Sync</h1>
+    <p>Polls an Esri Feature Layer and broadcasts records as CoT events to TAK Server. Install dir: <code>{{ install_dir }}</code></p>
+  </div>
+
+  <div class="tab-bar">
+    <button class="tab active" id="tab-btn-deploy" onclick="showTab('deploy')">🚀 {% if mod.installed %}Re-Deploy{% else %}Deploy{% endif %}</button>
+    <button class="tab" id="tab-btn-config" onclick="showTab('config')">⚙️ Config</button>
+    <button class="tab" id="tab-btn-service" onclick="showTab('service');refreshStatus()">🟢 Service</button>
+  </div>
+
+  <!-- ══════════════════════════════════════════ DEPLOY TAB ══ -->
+  <div id="tab-deploy" class="tab-panel active">
+    <div class="card">
+      <div class="card-title">{% if mod.installed %}Re-Deploy{% else %}Deploy{% endif %}</div>
+      <div style="font-size:13px;color:var(--text-secondary);line-height:1.8;margin-bottom:16px">
+        Installs dependencies, copies scripts, writes <code>config.json</code>, generates a self-signed client cert, and registers the systemd service.<br>
+        <strong style="display:block;margin-top:8px">What gets deployed:</strong>
+        <div style="margin-top:6px">
+          <div>📦 <strong>Dep:</strong> pip3 install requests</div>
+          <div>📁 <strong>Dir:</strong> {{ install_dir }}/</div>
+          <div>📄 <strong>Scripts:</strong> feature-layer-to-cot.py, setup-cert.py</div>
+          <div>🔒 <strong>Cert:</strong> certs/esri-push.p12 (self-signed, or skip if exists)</div>
+          <div>⚙️ <strong>Service:</strong> feature-layer-to-cot.service (not auto-started)</div>
+        </div>
+      </div>
+      <p class="hint" style="margin-bottom:16px">Configure TAK Server + Feature Layer on the <strong>Config</strong> tab first, or deploy now and configure after.</p>
+      {% if deploying %}
+      <div id="deploy-log-box" class="log-box" style="margin-bottom:16px">Waiting for log…</div>
+      <button class="btn btn-ghost" disabled>⏳ Installing…</button>
+      {% elif deploy_done %}
+      <div id="deploy-log-box" class="log-box" style="margin-bottom:16px"></div>
+      <button id="deploy-btn" class="btn btn-success" onclick="startDeploy()">✓ Deployed — Re-Deploy</button>
+      {% elif deploy_error %}
+      <div id="deploy-log-box" class="log-box" style="margin-bottom:16px"></div>
+      <button id="deploy-btn" class="btn btn-danger" onclick="startDeploy()">✗ Failed — Retry</button>
+      {% else %}
+      <div id="deploy-log-box" class="log-box" style="display:none;margin-bottom:16px"></div>
+      <button id="deploy-btn" class="btn btn-primary" onclick="startDeploy()">🚀 Deploy</button>
+      {% endif %}
+    </div>
+
+    {% if cert_exists %}
+    <div class="ok-card">
+      ✓ Client cert exists at <code>{{ cert_pem_path }}</code><br>
+      <span style="font-size:12px;opacity:.8">Add this cert to TAK Server's trusted clients (Admin → Certificate Enrollment or Manage Users) before starting the service.</span>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ══════════════════════════════════════════ CONFIG TAB ══ -->
+  <div id="tab-config" class="tab-panel">
+    {% if not mod.installed %}
+    <div class="warn-card">⚠ Deploy first to create the install directory, then save config.</div>
+    {% endif %}
+
+    <div class="card">
+      <div class="section-title">TAK Server</div>
+      <div class="grid2">
+        <div class="form-group">
+          <label class="form-label">Host</label>
+          <input id="tak_host" class="form-input" type="text" placeholder="localhost" value="{{ cfg.tak_host or '' }}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">CoT Port</label>
+          <input id="tak_port" class="form-input" type="number" placeholder="8089" value="{{ cfg.tak_port or '8089' }}">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">TLS</label>
+        <select id="tak_tls" class="form-input">
+          <option value="1" {% if cfg.get('tak_tls', True) %}selected{% endif %}>Enabled (recommended)</option>
+          <option value="0" {% if not cfg.get('tak_tls', True) %}selected{% endif %}>Disabled</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">P12 Certificate Password <span style="font-weight:400;color:var(--text-dim)">(leave blank if none)</span></label>
+        <input id="cert_password" class="form-input" type="password" placeholder="" value="{{ cfg.cert_password or '' }}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">CA Cert Path <span style="font-weight:400;color:var(--text-dim)">(optional — path to TAK Server CA .pem for verification)</span></label>
+        <input id="ca_cert" class="form-input" type="text" placeholder="/opt/Esri-TAKServer-Sync/certs/takserver-ca.pem" value="{{ cfg.ca_cert or '' }}">
+        <p class="hint">Leave empty to skip TAK Server cert verification (OK for internal/dev).</p>
+      </div>
+
+      <div class="section-title">Feature Layer</div>
+      <div class="form-group">
+        <label class="form-label">Feature Layer URL</label>
+        <input id="layer_url" class="form-input" type="text" placeholder="https://services.arcgis.com/.../FeatureServer/0" value="{{ cfg.layer_url or '' }}">
+        <p class="hint">Point to the layer root (e.g. <code>.../FeatureServer/0</code>). The <code>/query</code> suffix is added automatically.</p>
+      </div>
+      <div class="grid2">
+        <div class="form-group">
+          <label class="form-label">Layer Type</label>
+          <select id="layer_type" class="form-input" onchange="toggleAuth()">
+            <option value="online" {% if (cfg.get('layer_type','online'))=='online' %}selected{% endif %}>ArcGIS Online</option>
+            <option value="enterprise" {% if cfg.get('layer_type')=='enterprise' %}selected{% endif %}>ArcGIS Enterprise</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Access</label>
+          <select id="layer_public" class="form-input" onchange="toggleAuth()">
+            <option value="1" {% if cfg.get('layer_public', True) %}selected{% endif %}>Public (no auth)</option>
+            <option value="0" {% if not cfg.get('layer_public', True) %}selected{% endif %}>Private (username + password)</option>
+          </select>
+        </div>
+      </div>
+      <div id="auth-section" style="display:none">
+        <div class="grid2">
+          <div class="form-group">
+            <label class="form-label">Esri Username</label>
+            <input id="esri_username" class="form-input" type="text" value="{{ cfg.esri_username or '' }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Esri Password</label>
+            <input id="esri_password" class="form-input" type="password" value="{{ cfg.esri_password or '' }}">
+          </div>
+        </div>
+        <div class="form-group" id="portal-url-group" style="display:none">
+          <label class="form-label">Enterprise Portal URL <span style="font-weight:400;color:var(--text-dim)">(auto-derived if blank)</span></label>
+          <input id="portal_url" class="form-input" type="text" placeholder="https://gis.myorg.com/portal" value="{{ cfg.portal_url or '' }}">
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="form-group">
+          <label class="form-label">Poll Interval (seconds)</label>
+          <input id="poll_interval" class="form-input" type="number" placeholder="30" value="{{ cfg.poll_interval or '30' }}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Page Size</label>
+          <input id="page_size" class="form-input" type="number" placeholder="1000" value="{{ cfg.page_size or '1000' }}">
+        </div>
+      </div>
+
+      <div class="section-title">Field Mapping</div>
+      <div class="grid2">
+        <div class="form-group">
+          <label class="form-label">UID Field</label>
+          <input id="uid_field" class="form-input" type="text" placeholder="OBJECTID" value="{{ cfg.uid_field or '' }}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">UID Prefix</label>
+          <input id="uid_prefix" class="form-input" type="text" placeholder="EsriSync" value="{{ cfg.uid_prefix or '' }}">
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="form-group">
+          <label class="form-label">Callsign Field <span style="font-weight:400;color:var(--text-dim)">(empty = use UID value)</span></label>
+          <input id="callsign_field" class="form-input" type="text" placeholder="" value="{{ cfg.callsign_field or '' }}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">CoT Type <span style="font-weight:400;color:var(--text-dim)">(or <code>field:FieldName</code>)</span></label>
+          <input id="cot_type" class="form-input" type="text" placeholder="a-f-G" value="{{ cfg.cot_type or '' }}">
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="form-group">
+          <label class="form-label">Lat Field <span style="font-weight:400;color:var(--text-dim)">(empty = use geometry)</span></label>
+          <input id="lat_field" class="form-input" type="text" placeholder="" value="{{ cfg.lat_field or '' }}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Lon Field <span style="font-weight:400;color:var(--text-dim)">(empty = use geometry)</span></label>
+          <input id="lon_field" class="form-input" type="text" placeholder="" value="{{ cfg.lon_field or '' }}">
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="form-group">
+          <label class="form-label">Altitude Field <span style="font-weight:400;color:var(--text-dim)">(empty = 0)</span></label>
+          <input id="altitude_field" class="form-input" type="text" placeholder="" value="{{ cfg.altitude_field or '' }}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Stale (minutes)</label>
+          <input id="stale_minutes" class="form-input" type="number" placeholder="5" value="{{ cfg.stale_minutes or '5' }}">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Remarks Fields <span style="font-weight:400;color:var(--text-dim)">(comma-separated field names)</span></label>
+        <input id="remarks_fields" class="form-input" type="text" placeholder="Status, Notes" value="{{ cfg.remarks_fields or '' }}">
+      </div>
+
+      <div class="section-title">Delta / Change Detection</div>
+      <div class="grid2">
+        <div class="form-group">
+          <label class="form-label">Delta Mode</label>
+          <select id="delta_enabled" class="form-input">
+            <option value="1" {% if cfg.get('delta_enabled', True) %}selected{% endif %}>Enabled — only send new/changed records</option>
+            <option value="0" {% if not cfg.get('delta_enabled', True) %}selected{% endif %}>Disabled — broadcast all records every poll</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Track Field <span style="font-weight:400;color:var(--text-dim)">(field with edit timestamp)</span></label>
+          <input id="delta_field" class="form-input" type="text" placeholder="EditDate" value="{{ cfg.delta_field or '' }}">
+        </div>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:12px;margin-top:8px">
+        <button class="btn btn-success" onclick="saveConfig()">💾 Save Config</button>
+        <span id="save-msg" style="font-size:12px"></span>
+      </div>
+      <p class="hint" style="margin-top:10px">If the service is already running, restart it after saving to apply changes.</p>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════ SERVICE TAB ══ -->
+  <div id="tab-service" class="tab-panel">
+    {% if not mod.installed %}
+    <div class="warn-card">⚠ Deploy the module first before starting the service.</div>
+    {% else %}
+    <div class="card">
+      <div class="card-title">Service Status</div>
+      <div class="info-row">
+        <span>feature-layer-to-cot.service</span>
+        <span id="svc-badge" class="status-pill {% if svc_active %}pill-active{% else %}pill-inactive{% endif %}">
+          <span class="dot"></span><span id="svc-status-text">{% if svc_active %}active{% else %}inactive{% endif %}</span>
+        </span>
+      </div>
+      <div class="info-row">
+        <span>Log file</span>
+        <span style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--text-dim)">/var/log/esri-takserver-sync-feature-layer-to-cot.log</span>
+      </div>
+      <div class="info-row">
+        <span>Install dir</span>
+        <span style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--text-dim)">{{ install_dir }}</span>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">
+        <button class="btn btn-success" onclick="svcControl('start')">▶ Start</button>
+        <button class="btn btn-ghost" onclick="svcControl('stop')">■ Stop</button>
+        <button class="btn btn-ghost" onclick="svcControl('restart')">↺ Restart</button>
+        <span id="svc-ctrl-msg" style="font-size:12px;align-self:center"></span>
+      </div>
+    </div>
+
+    {% if log_tail %}
+    <div class="card">
+      <div class="card-title">Log (last 50 lines)</div>
+      <div class="log-box">{{ log_tail }}</div>
+    </div>
+    {% endif %}
+
+    <div class="card" style="border-color:rgba(239,68,68,.25)">
+      <div class="card-title" style="color:var(--red)">Danger Zone</div>
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px">
+        Stops the service, removes <code>{{ install_dir }}</code>, and unregisters the systemd unit. Config saved in infra-TAK settings is preserved.
+      </p>
+      <button class="btn btn-danger" onclick="uninstall()">🗑 Uninstall</button>
+      <span id="uninstall-msg" style="font-size:12px;margin-left:12px"></span>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+<script>
+var _logIdx=0,_logPoll=null;
+
+function showTab(name){
+  document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active');});
+  document.querySelectorAll('.tab').forEach(function(b){b.classList.remove('active');});
+  var p=document.getElementById('tab-'+name);
+  var b=document.getElementById('tab-btn-'+name);
+  if(p)p.classList.add('active');
+  if(b)b.classList.add('active');
+}
+
+function toggleAuth(){
+  var pub=document.getElementById('layer_public').value==='1';
+  var ent=document.getElementById('layer_type').value==='enterprise';
+  var authSec=document.getElementById('auth-section');
+  var portalGrp=document.getElementById('portal-url-group');
+  if(authSec)authSec.style.display=pub?'none':'block';
+  if(portalGrp)portalGrp.style.display=(!pub&&ent)?'block':'none';
+}
+toggleAuth();
+
+function saveConfig(){
+  var msg=document.getElementById('save-msg');
+  if(msg){msg.textContent='Saving…';msg.style.color='var(--text-dim)';}
+  var payload={
+    tak_host:document.getElementById('tak_host').value,
+    tak_port:parseInt(document.getElementById('tak_port').value)||8089,
+    tak_tls:document.getElementById('tak_tls').value==='1',
+    cert_password:document.getElementById('cert_password').value,
+    ca_cert:document.getElementById('ca_cert').value,
+    layer_url:document.getElementById('layer_url').value,
+    layer_public:document.getElementById('layer_public').value==='1',
+    layer_type:document.getElementById('layer_type').value,
+    esri_username:document.getElementById('esri_username').value,
+    esri_password:document.getElementById('esri_password').value,
+    portal_url:document.getElementById('portal_url').value,
+    poll_interval:parseInt(document.getElementById('poll_interval').value)||30,
+    page_size:parseInt(document.getElementById('page_size').value)||1000,
+    uid_field:document.getElementById('uid_field').value,
+    uid_prefix:document.getElementById('uid_prefix').value,
+    callsign_field:document.getElementById('callsign_field').value,
+    cot_type:document.getElementById('cot_type').value,
+    lat_field:document.getElementById('lat_field').value,
+    lon_field:document.getElementById('lon_field').value,
+    altitude_field:document.getElementById('altitude_field').value,
+    stale_minutes:parseInt(document.getElementById('stale_minutes').value)||5,
+    remarks_fields:document.getElementById('remarks_fields').value,
+    delta_enabled:document.getElementById('delta_enabled').value==='1',
+    delta_field:document.getElementById('delta_field').value
+  };
+  fetch('/api/esri-tak-sync/save-config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(!msg)return;
+      if(d.success){msg.textContent='✓ Saved';msg.style.color='var(--green)';setTimeout(function(){msg.textContent='';},2500);}
+      else{msg.textContent='✗ Error';msg.style.color='var(--red)';}
+    }).catch(function(){if(msg){msg.textContent='Request failed';msg.style.color='var(--red)';}});
+}
+
+function startDeploy(){
+  var btn=document.getElementById('deploy-btn');
+  var box=document.getElementById('deploy-log-box');
+  if(btn){btn.disabled=true;btn.textContent='⏳ Installing…';}
+  if(box){box.style.display='block';box.textContent='';}
+  _logIdx=0;
+  fetch('/api/esri-tak-sync/install',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.error){if(btn){btn.disabled=false;btn.textContent='✗ Error — Retry';btn.className='btn btn-danger';}}
+      else{_logPoll=setInterval(pollLog,1200);}
+    }).catch(function(){if(btn){btn.disabled=false;btn.textContent='✗ Failed';btn.className='btn btn-danger';}});
+}
+
+function pollLog(){
+  fetch('/api/esri-tak-sync/install/log?index='+_logIdx,{credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      var box=document.getElementById('deploy-log-box');
+      if(box&&d.entries&&d.entries.length>0){box.textContent+=(box.textContent?'\n':'')+d.entries.join('\n');box.scrollTop=box.scrollHeight;}
+      _logIdx=d.total;
+      var btn=document.getElementById('deploy-btn');
+      var msg=document.getElementById('deploy-status-msg');
+      if(!d.running){
+        clearInterval(_logPoll);_logPoll=null;
+        if(d.error){if(btn){btn.disabled=false;btn.textContent='✗ Failed — Retry';btn.className='btn btn-danger';}if(msg){msg.textContent='Failed';msg.style.color='var(--red)';}}
+        else if(d.complete){if(btn){btn.disabled=false;btn.textContent='✓ Installed — Re-Deploy';btn.className='btn btn-success';}if(msg){msg.textContent='✓ Done';msg.style.color='var(--green)';}}
+      }
+    }).catch(function(){});
+}
+
+function refreshStatus(){
+  fetch('/api/esri-tak-sync/service-status',{credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      var badge=document.getElementById('svc-badge');
+      var txt=document.getElementById('svc-status-text');
+      if(!badge)return;
+      var active=d.active;
+      badge.className='status-pill '+(active?'pill-active':'pill-inactive');
+      if(txt)txt.textContent=d.status||'unknown';
+    }).catch(function(){});
+}
+
+function svcControl(action){
+  var msg=document.getElementById('svc-ctrl-msg');
+  if(msg){msg.textContent=action+'ing…';msg.style.color='var(--text-dim)';}
+  fetch('/api/esri-tak-sync/service-control',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:action}),credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(msg){msg.textContent=d.success?'✓ Done':'✗ Failed';msg.style.color=d.success?'var(--green)':'var(--red)';setTimeout(function(){msg.textContent='';},2500);}
+      setTimeout(refreshStatus,800);
+    }).catch(function(){if(msg){msg.textContent='Request failed';msg.style.color='var(--red)';}});
+}
+
+function uninstall(){
+  if(!confirm('Remove Esri-TAK Sync? This deletes {{ install_dir }} and the systemd service. Config in infra-TAK settings is kept.'))return;
+  var msg=document.getElementById('uninstall-msg');
+  if(msg){msg.textContent='Uninstalling…';msg.style.color='var(--text-dim)';}
+  fetch('/api/esri-tak-sync/uninstall',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.success){if(msg){msg.textContent='✓ Removed';msg.style.color='var(--green)';}setTimeout(function(){location.href='/esri-tak-sync';},1200);}
+      else{if(msg){msg.textContent='✗ Failed';msg.style.color='var(--red)';}}
     }).catch(function(){if(msg){msg.textContent='Request failed';msg.style.color='var(--red)';}});
 }
 

@@ -1,0 +1,38 @@
+{
+  "_comment": "Test config — points at ESRI's public USA Major Cities sample layer. No auth needed.",
+  "tak_server": {
+    "host": "127.0.0.1",
+    "port": 8089,
+    "tls": false,
+    "cert_path": "",
+    "cert_password": "",
+    "ca_cert": ""
+  },
+  "feature_layer": {
+    "url": "https://services.arcgis.com/P3ePLMYs2RVChkJx/arcgis/rest/services/USA_Major_Cities/FeatureServer/0",
+    "public": true,
+    "username": "",
+    "password": "",
+    "portal_url": "https://www.arcgis.com",
+    "poll_interval": 15,
+    "page_size": 1000
+  },
+  "field_mapping": {
+    "lat": "",
+    "lon": "",
+    "uid_field": "OBJECTID",
+    "uid_prefix": "TestCity",
+    "callsign_field": "NAME",
+    "cot_type": "a-f-G",
+    "altitude_field": "",
+    "remarks_fields": ["NAME", "ST", "POPULATION"]
+  },
+  "cot": {
+    "stale_minutes": 5,
+    "how": "m-g"
+  },
+  "delta": {
+    "enabled": false,
+    "track_field": "EditDate"
+  }
+}
