@@ -13100,7 +13100,7 @@ function pollLog(){
       if(!d.running){
         clearInterval(_logPoll);_logPoll=null;
         if(d.error){if(btn){btn.disabled=false;btn.textContent='✗ Failed — Retry';btn.className='btn btn-danger';}if(msg){msg.textContent='Failed';msg.style.color='var(--red)';}}
-        else if(d.complete){if(btn){btn.disabled=false;btn.textContent='✓ Installed — Re-Deploy';btn.className='btn btn-success';}if(msg){msg.textContent='✓ Done';msg.style.color='var(--green)';}}
+        else if(d.complete){if(msg){msg.textContent='✓ Done — reloading…';msg.style.color='var(--green)';}setTimeout(function(){location.reload();},1500);}
       }
     }).catch(function(){});
 }
