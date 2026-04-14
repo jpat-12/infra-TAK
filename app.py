@@ -12022,14 +12022,25 @@ def esri_tak_sync_icons_delete():
 def esri_tak_sync_icon_img(uuid, icon_path):
     """Serve a single icon PNG from the matching iconset zip."""
     import zipfile
-    from flask import send_file
-    import io
+    from flask import make_response
     for iset in _esri_tak_sync_icon_manifest():
         if iset['uuid'] == uuid:
             zpath = os.path.join(ESRI_TAK_SYNC_ICONS_DIR, iset['zip'])
-            with zipfile.ZipFile(zpath) as z:
-                data = z.read(icon_path)
-            return send_file(io.BytesIO(data), mimetype='image/png')
+            try:
+                with zipfile.ZipFile(zpath) as z:
+                    # Try exact path first, then search case-insensitively
+                    names = z.namelist()
+                    matched = icon_path if icon_path in names else next(
+                        (n for n in names if n.lower() == icon_path.lower()), None)
+                    if matched is None:
+                        return jsonify({'error': f'Icon not found in zip: {icon_path}'}), 404
+                    data = z.read(matched)
+                resp = make_response(data)
+                resp.headers['Content-Type'] = 'image/png'
+                resp.headers['Cache-Control'] = 'public, max-age=86400'
+                return resp
+            except Exception as e:
+                return jsonify({'error': str(e)}), 500
     return '', 404
 
 
