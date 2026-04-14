@@ -869,7 +869,7 @@ def render_sidebar(modules, active_path, takwerx_logo_url=None):
         parts.append(link('/emailrelay', '<span class="nav-icon material-symbols-outlined">outgoing_mail</span>Email Relay'))
     esri_sync = modules.get('esri_takserver_sync', {})
     if esri_sync.get('installed'):
-        parts.append(link('/esri-tak-sync', '<span class="nav-icon" style="font-size:18px;line-height:1">🗺️</span><span>Esri-TAK Sync</span>', 'Esri-TAKServer-Sync'))
+        parts.append(link('/esri-tak-sync', '<span class="nav-icon" style="font-size:18px;line-height:1">🗺️</span><span>FeatureLayer → CoT</span>', 'Esri-TAKServer-Sync'))
     cot_fl = modules.get('cot_featurelayer', {})
     if cot_fl.get('installed'):
         parts.append(link('/cot-featurelayer', '<span class="nav-icon" style="font-size:18px;line-height:1">📡</span><span>CoT→Feature Layer</span>', 'CoT-FeatureLayer'))
@@ -12084,7 +12084,7 @@ def esri_tak_sync_icons_save_mapping():
 
 
 ESRI_TAK_SYNC_TEMPLATE = '''<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Esri-TAK Sync — infra-TAK</title>
+<title>FeatureLayer → CoT — infra-TAK</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet">
 <style>
@@ -12135,7 +12135,7 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:'DM Sans',s
 {{ sidebar_html }}
 <div class="main">
   <div class="page-header">
-    <h1>🗺️ Esri-TAK Sync</h1>
+    <h1>🗺️ FeatureLayer → CoT</h1>
     <p>Polls an Esri Feature Layer and broadcasts records as CoT events to TAK Server. Install dir: <code>{{ install_dir }}</code></p>
   </div>
 
@@ -12469,7 +12469,7 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:'DM Sans',s
   <!-- ══════════════════════════════════════════ WORKFLOW TAB ══ -->
   <div id="tab-workflow" class="tab-panel">
     <div class="card" style="padding:28px 24px">
-      <div class="card-title" style="margin-bottom:4px">Data Flow — Esri-TAK Sync</div>
+      <div class="card-title" style="margin-bottom:4px">Data Flow — FeatureLayer → CoT</div>
       <p style="font-size:13px;color:var(--text-secondary);margin-bottom:28px">Hover over any node or arrow to learn more about that part of the pipeline.</p>
       <style>
         .wf-wrap{display:flex;flex-direction:column;align-items:center;gap:0;width:100%;position:relative}
@@ -12821,7 +12821,7 @@ function svcControl(action){
 }
 
 function uninstall(){
-  if(!confirm('Remove Esri-TAK Sync? This deletes {{ install_dir }} and the systemd service. Config in infra-TAK settings is kept.'))return;
+  if(!confirm('Remove FeatureLayer → CoT? This deletes {{ install_dir }} and the systemd service. Config in infra-TAK settings is kept.'))return;
   var msg=document.getElementById('uninstall-msg');
   if(msg){msg.textContent='Uninstalling…';msg.style.color='var(--text-dim)';}
   fetch('/api/esri-tak-sync/uninstall',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',credentials:'same-origin'})
