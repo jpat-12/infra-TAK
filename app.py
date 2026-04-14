@@ -12359,52 +12359,6 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:'DM Sans',s
       {% endif %}
     </div>
 
-    <!-- Cert Setup card -->
-    <div class="card" style="margin-top:8px">
-      <div class="card-title" style="margin-bottom:4px">🔒 Client Certificate Setup</div>
-      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:18px">
-        The service needs a TAK Server-issued client cert for TLS auth (port 8089).
-        {% if cert_exists %}<span style="color:var(--green)">✓ Cert found at <code>{{ cert_pem_path }}</code></span>
-        {% else %}<span style="color:var(--yellow)">⚠ No cert found yet.</span>{% endif %}
-      </p>
-
-      {% if tak_local %}
-      <!-- TAK Server is on this machine -->
-      <div style="background:rgba(16,185,129,.05);border:1px solid rgba(16,185,129,.2);border-radius:10px;padding:14px 18px;margin-bottom:16px;font-size:13px">
-        <strong style="color:var(--green)">✓ TAK Server detected at /opt/tak</strong><br>
-        <span style="color:var(--text-secondary)">Click below to automatically run certmanager.sh, enroll the cert, and extract PEM files.</span>
-      </div>
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap">
-        <div>
-          <label class="form-label" style="margin-bottom:4px">P12 Password</label>
-          <input id="cert-password" class="form-input" type="password" value="atakatak" style="width:180px">
-        </div>
-        <div style="align-self:flex-end">
-          <button id="cert-gen-btn" class="btn btn-success" onclick="runCertSetup()">🔑 Generate from local TAK Server</button>
-        </div>
-      </div>
-      {% endif %}
-
-      <!-- Upload existing .p12 -->
-      <div style="border-top:{% if tak_local %}1px solid var(--border);padding-top:16px;margin-top:4px{% else %}none{% endif %}">
-        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:10px">
-          {% if tak_local %}Or import{% else %}Import{% endif %} an existing <code>.p12</code> from TAK Server's <code>certs/files/</code> directory:
-        </p>
-        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-          <input id="cert-p12-input" type="file" accept=".p12" style="font-size:13px;color:var(--text-secondary)">
-          {% if not tak_local %}
-          <div>
-            <label class="form-label" style="margin-bottom:4px">P12 Password</label>
-            <input id="cert-password" class="form-input" type="password" value="atakatak" style="width:180px">
-          </div>
-          {% endif %}
-          <button id="cert-upload-btn" class="btn btn-primary" onclick="uploadCert()">⬆ Import .p12</button>
-        </div>
-      </div>
-
-      <div id="cert-log-box" class="log-box" style="margin-top:14px;display:none"></div>
-      <div id="cert-status-msg" style="font-size:13px;margin-top:8px"></div>
-    </div>
   </div>
 
   <!-- ══════════════════════════════════════════ CONFIG TAB ══ -->
@@ -12440,6 +12394,51 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:'DM Sans',s
         <label class="form-label">CA Cert Path <span style="font-weight:400;color:var(--text-dim)">(optional — path to TAK Server CA .pem for verification)</span></label>
         <input id="ca_cert" class="form-input" type="text" placeholder="/opt/Esri-TAKServer-Sync/certs/takserver-ca.pem" value="{{ cfg.ca_cert or '' }}">
         <p class="hint">Leave empty to skip TAK Server cert verification (OK for internal/dev).</p>
+      </div>
+
+      <!-- Client Certificate -->
+      <div class="section-title" style="margin-top:18px">🔒 Client Certificate</div>
+      {% if cert_exists %}
+      <div style="background:rgba(16,185,129,.05);border:1px solid rgba(16,185,129,.2);border-radius:10px;padding:12px 16px;margin-bottom:12px;font-size:13px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+        <span style="color:var(--green)">✓ Cert found — <code>{{ cert_pem_path }}</code></span>
+        <button class="btn btn-ghost" style="font-size:12px;padding:4px 12px" onclick="document.getElementById('cert-replace-section').style.display=document.getElementById('cert-replace-section').style.display==='none'?'block':'none'">Replace…</button>
+      </div>
+      <div id="cert-replace-section" style="display:none">
+      {% else %}
+      <p style="font-size:13px;color:var(--yellow);margin-bottom:14px">⚠ No cert found. The service needs a TAK Server-issued client cert for TLS auth (port 8089).</p>
+      <div id="cert-replace-section">
+      {% endif %}
+        {% if tak_local %}
+        <div style="background:rgba(16,185,129,.04);border:1px solid rgba(16,185,129,.18);border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:13px">
+          <strong style="color:var(--green)">✓ TAK Server detected at /opt/tak</strong><br>
+          <span style="color:var(--text-secondary)">Automatically run makeCert.sh, enroll the cert, and extract PEM files.</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
+          <div>
+            <label class="form-label" style="margin-bottom:4px">P12 Password</label>
+            <input id="cert-password" class="form-input" type="password" value="atakatak" style="width:180px">
+          </div>
+          <div style="align-self:flex-end">
+            <button id="cert-gen-btn" class="btn btn-success" onclick="runCertSetup()">🔑 Generate from local TAK Server</button>
+          </div>
+        </div>
+        <div style="border-top:1px solid var(--border);padding-top:14px;margin-bottom:6px">
+          <p style="font-size:13px;color:var(--text-secondary);margin-bottom:10px">Or import an existing <code>.p12</code> from TAK Server's <code>certs/files/</code> directory:</p>
+        {% else %}
+        <div>
+          <p style="font-size:13px;color:var(--text-secondary);margin-bottom:10px">Import an existing <code>.p12</code> from TAK Server's <code>certs/files/</code> directory:</p>
+          <div style="margin-bottom:10px">
+            <label class="form-label" style="margin-bottom:4px">P12 Password</label>
+            <input id="cert-password" class="form-input" type="password" value="atakatak" style="width:180px">
+          </div>
+        {% endif %}
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px">
+            <input id="cert-p12-input" type="file" accept=".p12" style="font-size:13px;color:var(--text-secondary)">
+            <button id="cert-upload-btn" class="btn btn-primary" onclick="uploadCert()">⬆ Import .p12</button>
+          </div>
+        </div>
+        <div id="cert-log-box" class="log-box" style="margin-top:12px;display:none"></div>
+        <div id="cert-status-msg" style="font-size:13px;margin-top:8px"></div>
       </div>
 
       <div class="section-title">Feature Layer</div>
