@@ -1,0 +1,241 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 640" width="860" height="640">
+<defs>
+  <style>
+    .bg{fill:#0f1623}
+    .node{cursor:default}
+    .nr{fill:#1a2235;stroke:#2a3a50;stroke-width:1.5;transition:stroke .2s,filter .2s}
+    .node:hover .nr{stroke:#3b82f6;filter:drop-shadow(0 0 10px rgba(59,130,246,.35))}
+    .node-fl .nr{stroke:#0ea5e9}
+    .node-fl:hover .nr{stroke:#38bdf8}
+    .node-py .nr{stroke:#8b5cf6}
+    .node-py:hover .nr{stroke:#a78bfa}
+    .node-tak .nr{stroke:#10b981}
+    .node-tak:hover .nr{stroke:#34d399}
+    .side .nr{stroke-dasharray:6 3}
+    .side:hover .nr{stroke:#06b6d4;filter:drop-shadow(0 0 8px rgba(6,182,212,.3))}
+    .lbl{fill:#e2e8f0;font-family:"Segoe UI",system-ui,sans-serif;font-size:13px;font-weight:600;text-anchor:middle}
+    .sub{fill:#64748b;font-family:"Segoe UI",system-ui,sans-serif;font-size:11px;text-anchor:middle}
+    .ico{font-size:22px;text-anchor:middle;dominant-baseline:central}
+    .ico-sm{font-size:16px;text-anchor:middle;dominant-baseline:central}
+    .arr{cursor:default}
+    .al{stroke:#334155;stroke-width:2;fill:none;transition:stroke .2s}
+    .at{fill:#334155;transition:fill .2s}
+    .arr:hover .al{stroke:#3b82f6}
+    .arr:hover .at{fill:#3b82f6}
+    .arr-lbl{fill:#64748b;font-family:"Segoe UI",system-ui,sans-serif;font-size:10px;text-anchor:middle}
+    .leg{fill:#64748b;font-family:"Segoe UI",system-ui,sans-serif;font-size:11px}
+    .hint{fill:#94a3b8;font-family:"Segoe UI",system-ui,sans-serif;font-size:12px;text-anchor:middle}
+  </style>
+</defs>
+
+<!-- Background -->
+<rect width="860" height="640" class="bg" rx="14"/>
+
+<!-- ═══ Row 1: Esri Feature Layer ═══ -->
+<g class="node node-fl">
+  <title>Esri Feature Layer
+
+The source of truth. Can be hosted on ArcGIS Online or your own ArcGIS Enterprise portal.
+Supports public layers (no auth) and private layers (username/password token auth).
+2FA-protected accounts are not supported — use a service account.
+
+Records are fetched via the Feature Layer REST API /query endpoint with pagination (up to 1000 records per page).</title>
+  <rect class="nr" x="310" y="18" width="240" height="82" rx="12"/>
+  <text class="ico" x="430" y="47">🗄️</text>
+  <text class="lbl" x="430" y="70">Esri Feature Layer</text>
+  <text class="sub" x="430" y="87">ArcGIS Online or Enterprise</text>
+</g>
+
+<!-- Arrow: REST API Poll -->
+<g class="arr">
+  <title>REST API Poll
+
+HTTP GET to the Feature Layer /query endpoint every N seconds (configurable poll interval).
+Requests all fields in WGS84 coordinates, up to 1000 records per page with automatic pagination.
+When delta tracking is enabled, only records modified since the last run are fetched — reducing bandwidth and TAK Server load.</title>
+  <line class="al" x1="430" y1="100" x2="430" y2="153"/>
+  <polygon class="at" points="430,161 424,148 436,148"/>
+</g>
+
+<!-- ═══ Row 2: Python poller + side nodes ═══ -->
+
+<!-- config.json -->
+<g class="node side">
+  <title>config.json
+
+Stored at /opt/Esri-TAKServer-Sync/config.json
+Defines: TAK Server host/port, auth mode (cert or plain TCP), Feature Layer URL,
+field mapping (lat/lon/callsign/cot_type), delta tracking settings, icon mapping rules.
+Written by infra-TAK on each deploy or Config tab save.</title>
+  <rect class="nr" x="55" y="161" width="175" height="62" rx="10"/>
+  <text class="ico-sm" x="143" y="182">📄</text>
+  <text class="lbl" style="font-size:12px" x="143" y="201">config.json</text>
+  <text class="sub" x="143" y="215">TAK host · auth · field maps</text>
+</g>
+
+<!-- delta-state.json -->
+<g class="node side">
+  <title>delta-state.json
+
+Stored at /opt/Esri-TAKServer-Sync/delta-state.json
+When delta mode is on, only records with an EditDate newer than the stored value are sent.
+This reduces bandwidth and TAK Server load significantly for large layers.
+Delete this file to force a full re-broadcast on next start.</title>
+  <rect class="nr" x="55" y="238" width="175" height="62" rx="10"/>
+  <text class="ico-sm" x="143" y="259">💾</text>
+  <text class="lbl" style="font-size:12px" x="143" y="278">delta-state.json</text>
+  <text class="sub" x="143" y="292">Last-seen EditDate per UID</text>
+</g>
+
+<!-- Python poller (center) -->
+<g class="node node-py">
+  <title>feature-layer-to-cot.py
+
+Python worker script, runs as a systemd service (feature-layer-to-cot.service).
+Log: /var/log/esri-takserver-sync-feature-layer-to-cot.log (truncated on each restart)
+
+Each poll cycle:
+  1. Fetches all (or changed) records from the Feature Layer
+  2. Maps lat/lon/callsign/cot_type fields to CoT attributes
+  3. Resolves icon path from icon mapping table (if enabled)
+  4. Builds a CoT XML event element for each record
+  5. Streams to TAK Server over persistent TCP/TLS connection
+  6. Sends keepalive ping every 15s to hold the connection open</title>
+  <rect class="nr" x="315" y="161" width="230" height="82" rx="12"/>
+  <text class="ico" x="430" y="188">🐍</text>
+  <text class="lbl" x="430" y="211">feature-layer-to-cot.py</text>
+  <text class="sub" x="430" y="228">Python poller + CoT builder</text>
+</g>
+
+<!-- icons/*.zip -->
+<g class="node side">
+  <title>icons/*.zip — Icon Mapping
+
+Iconset .zip files stored in /opt/Esri-TAKServer-Sync/icons/
+Each zip must contain iconset.xml with a uid attribute.
+
+The Icons tab in infra-TAK lets you map a column value to an iconset path.
+The poller injects:
+  &lt;usericon iconsetpath="uuid/Group/icon.png"/&gt;
+into each CoT event so ATAK/WinTAK renders the correct icon.
+
+Upload zips via the web UI — they save directly to the server.</title>
+  <rect class="nr" x="630" y="161" width="175" height="62" rx="10"/>
+  <text class="ico-sm" x="717" y="182">🎨</text>
+  <text class="lbl" style="font-size:12px" x="717" y="201">icons/*.zip</text>
+  <text class="sub" x="717" y="215">ATAK / WinTAK iconsets</text>
+</g>
+
+<!-- ═══ Two arrows down (cert / plain) ═══ -->
+<g class="arr">
+  <title>TLS/Cert Mode — port 8089 (recommended)
+
+Uses mTLS — client presents a .p12 certificate signed by TAK Server's CA.
+TAK Server validates the cert against its trusted CA list.
+
+Generate cert:
+  cd /opt/tak
+  sudo bash certmanager.sh client esri-push
+  sudo java -jar utils/UserManager.jar certmod -A certs/files/esri-push.p12
+
+Extract PEM sidecars (note the -legacy flag for RC2 encryption):
+  openssl pkcs12 -legacy -in esri-push.p12 -nokeys -out esri-push-cert.pem
+  openssl pkcs12 -legacy -in esri-push.p12 -nocerts -nodes -out esri-push-key.pem
+
+Do NOT set ca_cert unless your server cert CN matches the hostname — causes SSL hostname mismatch errors.</title>
+  <line class="al" x1="400" y1="243" x2="393" y2="308"/>
+  <polygon class="at" points="392,317 386,303 398,304"/>
+  <text class="arr-lbl" x="358" y="282">cert (8089)</text>
+</g>
+<g class="arr">
+  <title>Plain TCP Mode — port 8087
+
+Unencrypted TCP connection — simpler to set up but traffic is not encrypted.
+Only use on a private/trusted network.
+
+TAK Server must have a plain TCP input configured in CoreConfig.xml.
+Many default TAK Server installs only have TLS enabled on 8089 and will silently drop plain TCP data even if the connection is accepted.</title>
+  <line class="al" x1="460" y1="243" x2="467" y2="308"/>
+  <polygon class="at" points="468,317 462,304 474,303"/>
+  <text class="arr-lbl" x="502" y="282">plain (8087)</text>
+</g>
+
+<!-- ═══ Row 3: TAK Server ═══ -->
+<g class="node node-tak">
+  <title>TAK Server
+
+Receives the CoT XML stream and fans it out to all connected clients in the configured group.
+
+The esri-push user/cert must be enrolled in a TAK group (e.g. __ANON__ or a custom group).
+All clients subscribed to that group will see the PLIs.
+
+Stale time is configurable per CoT event — records disappear from maps after N minutes if not refreshed by a new poll cycle.</title>
+  <rect class="nr" x="310" y="318" width="240" height="82" rx="12"/>
+  <text class="ico" x="430" y="347">🖥️</text>
+  <text class="lbl" x="430" y="370">TAK Server</text>
+  <text class="sub" x="430" y="387">Streams CoT to connected clients</text>
+</g>
+
+<!-- Arrow: CoT Distribution fan -->
+<g class="arr">
+  <title>CoT Distribution
+
+TAK Server sends CoT events to all connected ATAK, WinTAK, iTAK, and TAK Web clients.
+Each Feature Layer record appears as a PLI (Position Location Information) marker on the map
+with its callsign label and — if icon mapping is configured — a custom icon and colour.</title>
+  <line class="al" x1="430" y1="400" x2="430" y2="440"/>
+  <line class="al" x1="430" y1="440" x2="198" y2="476"/>
+  <line class="al" x1="430" y1="440" x2="430" y2="476"/>
+  <line class="al" x1="430" y1="440" x2="662" y2="476"/>
+  <polygon class="at" points="198,484 192,471 204,471"/>
+  <polygon class="at" points="430,484 424,471 436,471"/>
+  <polygon class="at" points="662,484 656,471 668,471"/>
+</g>
+
+<!-- ═══ Row 4: TAK Clients ═══ -->
+<g class="node">
+  <title>ATAK — Android Team Awareness Kit
+
+Feature Layer records appear as PLI markers on the ATAK map.
+Custom icons render if the matching iconset UUID is installed on the device
+(install via ATAK Preferences > Manage Iconsets).
+Remarks fields appear in the detail callout when tapping a marker.</title>
+  <rect class="nr" x="120" y="484" width="156" height="76" rx="12"/>
+  <text class="ico" x="198" y="510">📱</text>
+  <text class="lbl" x="198" y="533">ATAK</text>
+  <text class="sub" x="198" y="549">Android TAK</text>
+</g>
+
+<g class="node">
+  <title>WinTAK — Windows Team Awareness Kit
+
+Same CoT stream as ATAK.
+The bundled Incident Icons iconset is pre-installed in WinTAK by default —
+icons from that set render immediately without any additional setup on the client.
+Custom iconsets must be installed separately on each WinTAK device.</title>
+  <rect class="nr" x="352" y="484" width="156" height="76" rx="12"/>
+  <text class="ico" x="430" y="510">💻</text>
+  <text class="lbl" x="430" y="533">WinTAK</text>
+  <text class="sub" x="430" y="549">Windows TAK</text>
+</g>
+
+<g class="node">
+  <title>TAK Web / iTAK / TAKX
+
+Any CoT-compatible client connected to the same TAK Server and enrolled in the same group
+will receive Feature Layer records in real time.
+This includes browser-based TAK Web, iOS iTAK, and any third-party CoT consumer.</title>
+  <rect class="nr" x="584" y="484" width="156" height="76" rx="12"/>
+  <text class="ico" x="662" y="510">🌐</text>
+  <text class="lbl" x="662" y="533">TAK Web / iTAK</text>
+  <text class="sub" x="662" y="549">Browser / iOS</text>
+</g>
+
+<!-- Legend -->
+<line x1="36" y1="613" x2="52" y2="613" stroke="#2a3a50" stroke-width="1.5"/>
+<text class="leg" x="57" y="617">Solid border = active data path</text>
+<line x1="232" y1="613" x2="248" y2="613" stroke="#2a3a50" stroke-width="1.5" stroke-dasharray="6 3"/>
+<text class="leg" x="253" y="617">Dashed = supporting component</text>
+<text class="hint" x="690" y="617">ℹ hover any node or arrow</text>
+
+</svg>

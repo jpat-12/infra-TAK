@@ -2,16 +2,11 @@
 
 Polls an Esri Feature Layer (ArcGIS Online or Enterprise) and broadcasts each record as a CoT event to TAK Server, making them visible as PLIs on ATAK, WinTAK, iTAK, and TAK Web.
 
-## Interactive Data Flow
+## Data Flow
 
-> **[Open workflow diagram](workflow.html)** — hover any node or arrow for details.
+<a href="workflow.svg"><img src="workflow.svg" alt="FeatureLayer → CoT data flow diagram" width="860"/></a>
 
-The pipeline has four stages:
-
-```
-Esri Feature Layer  →  feature-layer-to-cot.py  →  TAK Server  →  TAK Clients
-  (REST API poll)       (Python / systemd)           (CoT stream)    (ATAK / WinTAK)
-```
+> Click the diagram to open the interactive version — hover any node or arrow for details.
 
 ## Quick Start
 
