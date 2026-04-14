@@ -12401,6 +12401,7 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:'DM Sans',s
       </div>
     </div>
 
+    <style>.picker-icon-cell{display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);transition:border-color .15s}.picker-icon-cell:hover{border-color:var(--accent)}</style>
     <!-- Icon picker modal -->
     <div id="icon-picker-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;align-items:center;justify-content:center">
       <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:24px;width:min(760px,95vw);max-height:85vh;display:flex;flex-direction:column;gap:14px">
@@ -13002,9 +13003,7 @@ function _pickerFilter(q){
     }
     groups[setName].forEach(function(ic){
       var imgPath='/api/esri-tak-sync/icons/img/'+encodeURI(ic.path);
-      html+='<div onclick="pickIcon(this.dataset.path)" data-path="'+_esc(ic.path)+'" title="'+_esc(ic.name)+'" '
-           +'style="display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);transition:border-color .15s" '
-           +'onmouseover="this.style.borderColor=\'var(--accent)\'" onmouseout="this.style.borderColor=\'var(--border)\'">'
+      html+='<div onclick="pickIcon(this.dataset.path)" data-path="'+_esc(ic.path)+'" title="'+_esc(ic.name)+'" class="picker-icon-cell">'
            +'<img src="'+imgPath+'" style="width:32px;height:32px;object-fit:contain" loading="lazy">'
            +'<span style="font-size:10px;color:var(--text-secondary);text-align:center;word-break:break-word;line-height:1.3">'+_esc(ic.name)+'</span>'
            +'</div>';
