@@ -11962,7 +11962,9 @@ def _esri_tak_sync_icon_manifest():
                 group = root.attrib.get('defaultGroup', name)
                 raw   = [n for n in z.namelist()
                          if n.lower().endswith('.png') and not n.startswith('__')]
-            icons = [{'name': os.path.basename(p), 'path': uuid + '/' + p}
+            # Normalize Windows backslashes to forward slashes for URLs
+            icons = [{'name': p.replace('\\', '/').split('/')[-1],
+                      'path': uuid + '/' + p.replace('\\', '/')}
                      for p in sorted(raw)]
             sets.append({'uuid': uuid, 'name': name, 'group': group,
                          'zip': fname, 'icons': icons})
@@ -12028,10 +12030,13 @@ def esri_tak_sync_icon_img(uuid, icon_path):
             zpath = os.path.join(ESRI_TAK_SYNC_ICONS_DIR, iset['zip'])
             try:
                 with zipfile.ZipFile(zpath) as z:
-                    # Try exact path first, then search case-insensitively
                     names = z.namelist()
-                    matched = icon_path if icon_path in names else next(
-                        (n for n in names if n.lower() == icon_path.lower()), None)
+                    # 1. exact match, 2. backslash variant, 3. case-insensitive
+                    bs_path = icon_path.replace('/', '\\')
+                    matched = (icon_path       if icon_path in names else
+                               bs_path         if bs_path   in names else
+                               next((n for n in names if n.replace('\\','/').lower()
+                                     == icon_path.lower()), None))
                     if matched is None:
                         return jsonify({'error': f'Icon not found in zip: {icon_path}'}), 404
                     data = z.read(matched)
@@ -12047,31 +12052,35 @@ def esri_tak_sync_icon_img(uuid, icon_path):
 @app.route('/api/esri-tak-sync/icons/save-mapping', methods=['POST'])
 @login_required
 def esri_tak_sync_icons_save_mapping():
-    data = request.get_json(silent=True) or {}
-    cfg = _esri_tak_sync_load_config()
-    cfg['icon_column']          = data.get('column', '')
-    cfg['icon_enabled']         = bool(data.get('enabled', False))
-    cfg['icon_default_path']    = data.get('default_iconsetpath', '')
-    cfg['icon_map']             = data.get('map', {})
-    _esri_tak_sync_save_config(cfg)
-    # Also write directly into the deployed config.json so the service picks it up
-    deployed = os.path.join(ESRI_TAK_SYNC_DIR, 'config.json')
-    if os.path.exists(deployed):
-        try:
-            import json as _j
-            with open(deployed) as fh:
-                dcfg = _j.load(fh)
-            dcfg['icon_mapping'] = {
-                'enabled':              cfg['icon_enabled'],
-                'column':               cfg['icon_column'],
-                'default_iconsetpath':  cfg['icon_default_path'],
-                'map':                  cfg['icon_map'],
-            }
-            with open(deployed, 'w') as fh:
-                _j.dump(dcfg, fh, indent=2)
-        except Exception:
-            pass
-    return jsonify({'success': True})
+    try:
+        data = request.get_json(silent=True) or {}
+        cfg = _esri_tak_sync_load_config()
+        cfg['icon_column']       = data.get('column', '')
+        cfg['icon_enabled']      = bool(data.get('enabled', False))
+        cfg['icon_default_path'] = data.get('default_iconsetpath', '')
+        cfg['icon_map']          = data.get('map', {})
+        _esri_tak_sync_save_config(cfg)
+        # Also write directly into the deployed config.json so the service picks it up
+        deployed = os.path.join(ESRI_TAK_SYNC_DIR, 'config.json')
+        if os.path.exists(deployed):
+            try:
+                import json as _j
+                with open(deployed) as fh:
+                    dcfg = _j.load(fh)
+                dcfg['icon_mapping'] = {
+                    'enabled':             cfg['icon_enabled'],
+                    'column':              cfg['icon_column'],
+                    'default_iconsetpath': cfg['icon_default_path'],
+                    'map':                 cfg['icon_map'],
+                }
+                with open(deployed, 'w') as fh:
+                    _j.dump(dcfg, fh, indent=2)
+            except Exception as e:
+                # Non-fatal — app settings were saved, deployed config update failed
+                return jsonify({'success': True, 'warning': f'App settings saved but deployed config.json update failed: {e}'})
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 ESRI_TAK_SYNC_TEMPLATE = '''<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
@@ -12850,8 +12859,8 @@ function renderIconsetList(){
     var preview='<div style="display:flex;flex-wrap:wrap;gap:6px;padding:8px 0 4px">';
     var shown=s.icons.slice(0,12);
     shown.forEach(function(ic){
-      var imgPath='/api/esri-tak-sync/icons/img/'+ic.path;
-      preview+='<img src="'+imgPath+'" title="'+ic.name+'" style="width:28px;height:28px;object-fit:contain;background:var(--surface);border-radius:4px;padding:2px">';
+      var imgPath='/api/esri-tak-sync/icons/img/'+encodeURI(ic.path);
+      preview+='<img src="'+imgPath+'" title="'+_esc(ic.name)+'" style="width:28px;height:28px;object-fit:contain;background:var(--surface);border-radius:4px;padding:2px">';
     });
     if(s.icons.length>12)preview+='<span style="font-size:11px;color:var(--text-dim);align-self:center">+'+((s.icons.length-12))+' more</span>';
     preview+='</div>';
@@ -12917,7 +12926,9 @@ function _rebuildRowsDOM(){
   }
   var html='';
   _mappingRows.forEach(function(row,i){
-    var previewUrl=row.iconsetpath?'/api/esri-tak-sync/icons/img/'+row.iconsetpath:'';
+    // Normalize backslashes → forward slashes (Windows zips may have stored them with \)
+    if(row.iconsetpath)row.iconsetpath=row.iconsetpath.replace(/\\\\/g,'/');
+    var previewUrl=row.iconsetpath?'/api/esri-tak-sync/icons/img/'+encodeURI(row.iconsetpath):'';
     html+='<div style="display:flex;align-items:center;gap:10px;background:var(--surface);padding:10px;border-radius:6px">';
     html+='<input type="text" placeholder="Column value" value="'+_esc(row.col_value)+'" style="flex:1;min-width:0"'
          +' onchange="_mappingRows['+i+'].col_value=this.value">';
@@ -12946,8 +12957,8 @@ function openPicker(rowIdx){
   _iconsets.forEach(function(s){
     html+='<div style="font-size:12px;font-weight:600;color:var(--text-secondary);padding:8px 0 4px;grid-column:1/-1">'+s.name+'</div>';
     s.icons.forEach(function(ic){
-      var imgPath='/api/esri-tak-sync/icons/img/'+ic.path;
-      html+='<div onclick="pickIcon(this.dataset.path)" data-path="'+ic.path+'" title="'+_esc(ic.name)+'" '
+      var imgPath='/api/esri-tak-sync/icons/img/'+encodeURI(ic.path);
+      html+='<div onclick="pickIcon(this.dataset.path)" data-path="'+_esc(ic.path)+'" title="'+_esc(ic.name)+'" '
            +'style="display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--surface)">'
            +'<img src="'+imgPath+'" style="width:32px;height:32px;object-fit:contain">'
            +'<span style="font-size:10px;color:var(--text-secondary);text-align:center;word-break:break-word">'+_esc(ic.name)+'</span>'
@@ -12970,7 +12981,7 @@ function pickIcon(iconsetpath){
     var el=document.getElementById('icon-default-path');
     if(el){el.value=iconsetpath;}
     var prev=document.getElementById('preview-__default__');
-    if(prev){prev.src='/api/esri-tak-sync/icons/img/'+iconsetpath;prev.style.display='';}
+    if(prev){prev.src='/api/esri-tak-sync/icons/img/'+encodeURI(iconsetpath);prev.style.display='';}
   } else if(_pickerTarget!==null&&_mappingRows[_pickerTarget]!==undefined){
     _mappingRows[_pickerTarget].iconsetpath=iconsetpath;
     _rebuildRowsDOM();
