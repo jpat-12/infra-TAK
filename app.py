@@ -11623,6 +11623,8 @@ ESRI_TAK_SYNC_DIR     = '/opt/Esri-TAKServer-Sync'
 ESRI_TAK_SYNC_SERVICE = 'feature-layer-to-cot'
 _esri_tak_sync_install_log    = []
 _esri_tak_sync_install_status = {'running': False, 'complete': False, 'error': False}
+_esri_tak_sync_cert_log    = []
+_esri_tak_sync_cert_status = {'running': False, 'complete': False, 'error': False}
 
 
 def _esri_tak_sync_load_config():
@@ -11799,6 +11801,173 @@ def _run_esri_tak_sync_install():
         status.update({'running': False, 'error': True})
 
 
+def _run_esri_tak_sync_cert_setup(mode, password, cert_name):
+    import shutil as _shutil
+    log    = _esri_tak_sync_cert_log
+    status = _esri_tak_sync_cert_status
+    tak_dir   = '/opt/tak'
+    certs_dir = os.path.join(ESRI_TAK_SYNC_DIR, 'certs')
+
+    def plog(msg):
+        entry = f"[{datetime.now().strftime('%H:%M:%S')}] {msg}"
+        log.append(entry)
+        print(entry, flush=True)
+
+    def run_openssl_p12(extra_flags, in_path, out_path, pass_arg, nocerts=False, nokeys=False):
+        """Try openssl pkcs12 with -legacy first, fall back without it."""
+        base = ['openssl', 'pkcs12'] + extra_flags + ['-in', in_path, '-out', out_path, '-passin', pass_arg]
+        if nocerts: base += ['-nokeys']
+        if nokeys:  base += ['-nocerts', '-nodes']
+        for flags in (['-legacy',], []):
+            cmd = base[:2] + flags + base[2:]
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            if r.returncode == 0:
+                return True, ''
+        return False, r.stderr[:300]
+
+    try:
+        os.makedirs(certs_dir, exist_ok=True)
+        p12_path = os.path.join(certs_dir, f'{cert_name}.p12')
+        cert_pem = os.path.join(certs_dir, f'{cert_name}-cert.pem')
+        key_pem  = os.path.join(certs_dir, f'{cert_name}-key.pem')
+        pass_arg = f'pass:{password}' if password else 'pass:'
+
+        if mode == 'local':
+            # ── Step 1: certmanager.sh ────────────────────────────────────────
+            plog('━━━ Step 1/3: Generating cert with certmanager.sh ━━━')
+            r = subprocess.run(
+                ['bash', os.path.join(tak_dir, 'certmanager.sh'), 'client', cert_name],
+                capture_output=True, text=True, timeout=120, cwd=tak_dir)
+            if r.returncode != 0:
+                plog(f'  ✗ certmanager.sh failed (exit {r.returncode})')
+                plog(f'  {(r.stderr or r.stdout or "")[:400]}')
+                status.update({'running': False, 'error': True}); return
+            p12_src = os.path.join(tak_dir, 'certs', 'files', f'{cert_name}.p12')
+            if not os.path.exists(p12_src):
+                plog(f'  ✗ Expected p12 not found at {p12_src}')
+                status.update({'running': False, 'error': True}); return
+            plog(f'  ✓ {p12_src}')
+
+            # ── Step 2: UserManager enroll ────────────────────────────────────
+            plog('')
+            plog('━━━ Step 2/3: Enrolling cert with TAK Server ━━━')
+            utils_jar = os.path.join(tak_dir, 'utils', 'UserManager.jar')
+            if os.path.exists(utils_jar):
+                r = subprocess.run(
+                    ['java', '-jar', utils_jar, 'certmod', '-A', p12_src],
+                    capture_output=True, text=True, timeout=60, cwd=tak_dir)
+                if r.returncode != 0:
+                    plog(f'  ⚠ UserManager.jar returned {r.returncode} — cert may need manual enrollment')
+                    plog(f'  {(r.stderr or r.stdout or "")[:200]}')
+                else:
+                    plog('  ✓ Cert enrolled (admin role assigned)')
+            else:
+                plog(f'  ⚠ {utils_jar} not found — add cert manually in TAK Server Admin UI')
+
+            # ── Copy p12 to certs dir ─────────────────────────────────────────
+            _shutil.copy2(p12_src, p12_path)
+            os.chmod(p12_path, 0o600)
+            plog('')
+            plog('━━━ Step 3/3: Extracting PEM files ━━━')
+        else:
+            # upload mode — p12 already saved by the upload route
+            plog('━━━ Extracting PEM files from uploaded .p12 ━━━')
+            if not os.path.exists(p12_path):
+                plog(f'  ✗ .p12 not found at {p12_path} — upload may have failed')
+                status.update({'running': False, 'error': True}); return
+
+        ok, err = run_openssl_p12([], p12_path, cert_pem, pass_arg, nocerts=True)
+        if not ok:
+            plog(f'  ✗ Failed to extract cert PEM: {err}')
+            status.update({'running': False, 'error': True}); return
+        plog(f'  ✓ {cert_pem}')
+
+        ok, err = run_openssl_p12([], p12_path, key_pem, pass_arg, nokeys=True)
+        if not ok:
+            plog(f'  ✗ Failed to extract key PEM: {err}')
+            status.update({'running': False, 'error': True}); return
+        os.chmod(key_pem, 0o600)
+        plog(f'  ✓ {key_pem}')
+
+        # ── Update app + deployed configs ─────────────────────────────────────
+        cfg = _esri_tak_sync_load_config()
+        cfg['cert_password'] = password
+        _esri_tak_sync_save_config(cfg)
+        deployed = os.path.join(ESRI_TAK_SYNC_DIR, 'config.json')
+        if os.path.exists(deployed):
+            try:
+                with open(deployed) as fh: dcfg = json.load(fh)
+                dcfg.setdefault('tak_server', {})
+                dcfg['tak_server']['cert_path']     = p12_path
+                dcfg['tak_server']['cert_password'] = password
+                with open(deployed, 'w') as fh: json.dump(dcfg, fh, indent=2)
+            except Exception: pass
+
+        plog('')
+        plog('━━━ Cert setup complete ━━━')
+        plog(f'  .p12 : {p12_path}')
+        plog(f'  cert : {cert_pem}')
+        plog(f'  key  : {key_pem}')
+        plog('  Config updated. Restart the service to use the new cert.')
+        status.update({'running': False, 'complete': True, 'error': False})
+
+    except Exception as e:
+        plog(f'✗ Fatal: {e}')
+        status.update({'running': False, 'error': True})
+
+
+@app.route('/api/esri-tak-sync/setup-cert', methods=['POST'])
+@login_required
+def esri_tak_sync_setup_cert():
+    data      = request.get_json(silent=True) or {}
+    password  = data.get('password', 'atakatak')
+    cert_name = data.get('cert_name', 'esri-push')
+    if not os.path.isdir('/opt/tak'):
+        return jsonify({'success': False, 'error': 'TAK Server not found at /opt/tak'}), 400
+    if _esri_tak_sync_cert_status.get('running'):
+        return jsonify({'error': 'Already running'}), 409
+    _esri_tak_sync_cert_log.clear()
+    _esri_tak_sync_cert_status.update({'running': True, 'complete': False, 'error': False})
+    threading.Thread(target=_run_esri_tak_sync_cert_setup,
+                     args=('local', password, cert_name), daemon=True).start()
+    return jsonify({'success': True})
+
+
+@app.route('/api/esri-tak-sync/setup-cert/upload', methods=['POST'])
+@login_required
+def esri_tak_sync_cert_upload():
+    f         = request.files.get('file')
+    password  = request.form.get('password', 'atakatak')
+    cert_name = request.form.get('cert_name', 'esri-push')
+    if not f or not f.filename.lower().endswith('.p12'):
+        return jsonify({'success': False, 'error': 'Upload a .p12 file'}), 400
+    if _esri_tak_sync_cert_status.get('running'):
+        return jsonify({'error': 'Already running'}), 409
+    certs_dir = os.path.join(ESRI_TAK_SYNC_DIR, 'certs')
+    os.makedirs(certs_dir, exist_ok=True)
+    save_path = os.path.join(certs_dir, f'{cert_name}.p12')
+    f.save(save_path)
+    os.chmod(save_path, 0o600)
+    _esri_tak_sync_cert_log.clear()
+    _esri_tak_sync_cert_status.update({'running': True, 'complete': False, 'error': False})
+    threading.Thread(target=_run_esri_tak_sync_cert_setup,
+                     args=('upload', password, cert_name), daemon=True).start()
+    return jsonify({'success': True})
+
+
+@app.route('/api/esri-tak-sync/setup-cert/log')
+@login_required
+def esri_tak_sync_cert_log_route():
+    idx = request.args.get('index', 0, type=int)
+    return jsonify({
+        'entries': _esri_tak_sync_cert_log[idx:],
+        'total':   len(_esri_tak_sync_cert_log),
+        'running': _esri_tak_sync_cert_status['running'],
+        'complete':_esri_tak_sync_cert_status['complete'],
+        'error':   _esri_tak_sync_cert_status['error'],
+    })
+
+
 @app.route('/esri-tak-sync')
 @login_required
 def esri_tak_sync_page():
@@ -11822,11 +11991,13 @@ def esri_tak_sync_page():
             pass
     cert_pem = os.path.join(ESRI_TAK_SYNC_DIR, 'certs', 'esri-push-cert.pem')
     cert_exists = os.path.exists(cert_pem)
+    tak_local   = os.path.isdir('/opt/tak')
     return make_response(render_template_string(ESRI_TAK_SYNC_TEMPLATE,
         settings=settings, mod=mod, cfg=cfg,
         svc_active=svc_active, log_tail=log_tail,
         cert_exists=cert_exists, cert_pem_path=cert_pem,
         install_dir=ESRI_TAK_SYNC_DIR, version=VERSION,
+        tak_local=tak_local,
         deploying=_esri_tak_sync_install_status.get('running', False),
         deploy_done=_esri_tak_sync_install_status.get('complete', False),
         deploy_error=_esri_tak_sync_install_status.get('error', False)))
@@ -12187,12 +12358,52 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:'DM Sans',s
       {% endif %}
     </div>
 
-    {% if cert_exists %}
-    <div class="ok-card">
-      ✓ Client cert exists at <code>{{ cert_pem_path }}</code><br>
-      <span style="font-size:12px;opacity:.8">Add this cert to TAK Server's trusted clients (Admin → Certificate Enrollment or Manage Users) before starting the service.</span>
+    <!-- Cert Setup card -->
+    <div class="card" style="margin-top:8px">
+      <div class="card-title" style="margin-bottom:4px">🔒 Client Certificate Setup</div>
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:18px">
+        The service needs a TAK Server-issued client cert for TLS auth (port 8089).
+        {% if cert_exists %}<span style="color:var(--green)">✓ Cert found at <code>{{ cert_pem_path }}</code></span>
+        {% else %}<span style="color:var(--yellow)">⚠ No cert found yet.</span>{% endif %}
+      </p>
+
+      {% if tak_local %}
+      <!-- TAK Server is on this machine -->
+      <div style="background:rgba(16,185,129,.05);border:1px solid rgba(16,185,129,.2);border-radius:10px;padding:14px 18px;margin-bottom:16px;font-size:13px">
+        <strong style="color:var(--green)">✓ TAK Server detected at /opt/tak</strong><br>
+        <span style="color:var(--text-secondary)">Click below to automatically run certmanager.sh, enroll the cert, and extract PEM files.</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap">
+        <div>
+          <label class="form-label" style="margin-bottom:4px">P12 Password</label>
+          <input id="cert-password" class="form-input" type="password" value="atakatak" style="width:180px">
+        </div>
+        <div style="align-self:flex-end">
+          <button id="cert-gen-btn" class="btn btn-success" onclick="runCertSetup()">🔑 Generate from local TAK Server</button>
+        </div>
+      </div>
+      {% endif %}
+
+      <!-- Upload existing .p12 -->
+      <div style="border-top:{% if tak_local %}1px solid var(--border);padding-top:16px;margin-top:4px{% else %}none{% endif %}">
+        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:10px">
+          {% if tak_local %}Or import{% else %}Import{% endif %} an existing <code>.p12</code> from TAK Server's <code>certs/files/</code> directory:
+        </p>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <input id="cert-p12-input" type="file" accept=".p12" style="font-size:13px;color:var(--text-secondary)">
+          {% if not tak_local %}
+          <div>
+            <label class="form-label" style="margin-bottom:4px">P12 Password</label>
+            <input id="cert-password" class="form-input" type="password" value="atakatak" style="width:180px">
+          </div>
+          {% endif %}
+          <button id="cert-upload-btn" class="btn btn-primary" onclick="uploadCert()">⬆ Import .p12</button>
+        </div>
+      </div>
+
+      <div id="cert-log-box" class="log-box" style="margin-top:14px;display:none"></div>
+      <div id="cert-status-msg" style="font-size:13px;margin-top:8px"></div>
     </div>
-    {% endif %}
   </div>
 
   <!-- ══════════════════════════════════════════ CONFIG TAB ══ -->
@@ -12743,6 +12954,85 @@ function toggleAuth(){
   if(portalGrp)portalGrp.style.display=(!pub&&ent)?'block':'none';
 }
 toggleAuth();
+
+// ── Cert setup ──────────────────────────────────────────────────────────────
+var _certLogIdx=0,_certLogPoll=null;
+
+function _certPassword(){
+  var el=document.getElementById('cert-password');
+  return el?el.value:'atakatak';
+}
+
+function _certPollStart(){
+  _certLogIdx=0;
+  var box=document.getElementById('cert-log-box');
+  if(box){box.style.display='block';box.textContent='';}
+  _certLogPoll=setInterval(_certPollLog,800);
+}
+
+function _certPollLog(){
+  fetch('/api/esri-tak-sync/setup-cert/log?index='+_certLogIdx,{credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      var box=document.getElementById('cert-log-box');
+      var msg=document.getElementById('cert-status-msg');
+      if(box&&d.entries&&d.entries.length){box.textContent+=(box.textContent?'\\n':'')+d.entries.join('\\n');box.scrollTop=box.scrollHeight;}
+      _certLogIdx=d.total;
+      if(!d.running){
+        clearInterval(_certLogPoll);_certLogPoll=null;
+        var genBtn=document.getElementById('cert-gen-btn');
+        var upBtn=document.getElementById('cert-upload-btn');
+        if(genBtn)genBtn.disabled=false;
+        if(upBtn)upBtn.disabled=false;
+        if(d.error){if(msg){msg.textContent='✗ Failed — check log above';msg.style.color='var(--red)';}}
+        else if(d.complete){if(msg){msg.textContent='✓ Cert ready — restart the service';msg.style.color='var(--green)';}}
+      }
+    }).catch(function(){});
+}
+
+function runCertSetup(){
+  var genBtn=document.getElementById('cert-gen-btn');
+  var upBtn=document.getElementById('cert-upload-btn');
+  var msg=document.getElementById('cert-status-msg');
+  if(genBtn)genBtn.disabled=true;
+  if(upBtn)upBtn.disabled=true;
+  if(msg){msg.textContent='Running…';msg.style.color='var(--text-dim)';}
+  fetch('/api/esri-tak-sync/setup-cert',{method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({password:_certPassword(),cert_name:'esri-push'}),
+    credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.error){if(msg){msg.textContent='✗ '+d.error;msg.style.color='var(--red)';}
+        if(genBtn)genBtn.disabled=false;if(upBtn)upBtn.disabled=false;return;}
+      _certPollStart();
+    }).catch(function(){if(msg){msg.textContent='Request failed';msg.style.color='var(--red)';}
+      if(genBtn)genBtn.disabled=false;if(upBtn)upBtn.disabled=false;});
+}
+
+function uploadCert(){
+  var fi=document.getElementById('cert-p12-input');
+  if(!fi||!fi.files||!fi.files[0]){alert('Select a .p12 file first');return;}
+  var genBtn=document.getElementById('cert-gen-btn');
+  var upBtn=document.getElementById('cert-upload-btn');
+  var msg=document.getElementById('cert-status-msg');
+  if(genBtn)genBtn.disabled=true;
+  if(upBtn)upBtn.disabled=true;
+  if(msg){msg.textContent='Uploading…';msg.style.color='var(--text-dim)';}
+  var fd=new FormData();
+  fd.append('file',fi.files[0]);
+  fd.append('password',_certPassword());
+  fd.append('cert_name','esri-push');
+  fetch('/api/esri-tak-sync/setup-cert/upload',{method:'POST',body:fd,credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.error){if(msg){msg.textContent='✗ '+d.error;msg.style.color='var(--red)';}
+        if(genBtn)genBtn.disabled=false;if(upBtn)upBtn.disabled=false;return;}
+      _certPollStart();
+    }).catch(function(){if(msg){msg.textContent='Request failed';msg.style.color='var(--red)';}
+      if(genBtn)genBtn.disabled=false;if(upBtn)upBtn.disabled=false;});
+}
+// ── End cert setup ──────────────────────────────────────────────────────────
 
 function saveConfig(){
   var msg=document.getElementById('save-msg');
