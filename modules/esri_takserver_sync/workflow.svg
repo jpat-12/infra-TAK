@@ -134,9 +134,9 @@ Uses mTLS — client presents a .p12 certificate signed by TAK Server's CA.
 TAK Server validates the cert against its trusted CA list.
 
 Generate cert:
-  cd /opt/tak
-  sudo bash certmanager.sh client esri-push
-  sudo java -jar utils/UserManager.jar certmod -A certs/files/esri-push.p12
+  cd /opt/tak/certs
+  sudo bash makeCert.sh client esri-push
+  sudo java -jar /opt/tak/utils/UserManager.jar certmod -A /opt/tak/certs/files/esri-push.p12
 
 Extract PEM sidecars (note the -legacy flag for RC2 encryption):
   openssl pkcs12 -legacy -in esri-push.p12 -nokeys -out esri-push-cert.pem

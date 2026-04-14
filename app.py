@@ -801,7 +801,7 @@ def detect_modules():
         r = subprocess.run(['systemctl', 'is-active', 'feature-layer-to-cot.service'], capture_output=True, text=True)
         esri_tak_running = r.stdout.strip() == 'active'
     modules['esri_takserver_sync'] = {
-        'name': 'Esri-TAKServer-Sync',
+        'name': '🗺️ FeatureLayer → CoT',
         'installed': esri_tak_installed,
         'running': esri_tak_running,
         'description': 'Broadcasts Esri Feature Layer records as CoT to TAK Server',
@@ -11833,16 +11833,17 @@ def _run_esri_tak_sync_cert_setup(mode, password, cert_name):
         pass_arg = f'pass:{password}' if password else 'pass:'
 
         if mode == 'local':
-            # ── Step 1: certmanager.sh ────────────────────────────────────────
-            plog('━━━ Step 1/3: Generating cert with certmanager.sh ━━━')
+            # ── Step 1: makeCert.sh ───────────────────────────────────────────
+            plog('━━━ Step 1/3: Generating cert with makeCert.sh ━━━')
+            certs_tak_dir = os.path.join(tak_dir, 'certs')
             r = subprocess.run(
-                ['bash', os.path.join(tak_dir, 'certmanager.sh'), 'client', cert_name],
-                capture_output=True, text=True, timeout=120, cwd=tak_dir)
+                ['bash', 'makeCert.sh', 'client', cert_name],
+                capture_output=True, text=True, timeout=120, cwd=certs_tak_dir)
             if r.returncode != 0:
-                plog(f'  ✗ certmanager.sh failed (exit {r.returncode})')
+                plog(f'  ✗ makeCert.sh failed (exit {r.returncode})')
                 plog(f'  {(r.stderr or r.stdout or "")[:400]}')
                 status.update({'running': False, 'error': True}); return
-            p12_src = os.path.join(tak_dir, 'certs', 'files', f'{cert_name}.p12')
+            p12_src = os.path.join(certs_tak_dir, 'files', f'{cert_name}.p12')
             if not os.path.exists(p12_src):
                 plog(f'  ✗ Expected p12 not found at {p12_src}')
                 status.update({'running': False, 'error': True}); return

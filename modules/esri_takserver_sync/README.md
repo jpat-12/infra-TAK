@@ -19,16 +19,16 @@ Polls an Esri Feature Layer (ArcGIS Online or Enterprise) and broadcasts each re
 
 | Mode | Port | Notes |
 |------|------|-------|
-| `cert` | 8089 | mTLS — recommended. Requires a CA-signed `.p12` from `certmanager.sh` |
+| `cert` | 8089 | mTLS — recommended. Requires a CA-signed `.p12` from `makeCert.sh` |
 | `plain` | 8087 | Unencrypted TCP. Only use on a private/trusted network |
 
 ### Generating a cert (TAK Server side)
 
 ```bash
-cd /opt/tak
-sudo bash certmanager.sh client esri-push
+cd /opt/tak/certs
+sudo bash makeCert.sh client esri-push
 # Then trust it:
-sudo java -jar utils/UserManager.jar certmod -A certs/files/esri-push.p12
+sudo java -jar /opt/tak/utils/UserManager.jar certmod -A /opt/tak/certs/files/esri-push.p12
 ```
 
 Extract PEM sidecars for the Python script:
