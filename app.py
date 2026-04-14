@@ -801,7 +801,7 @@ def detect_modules():
         r = subprocess.run(['systemctl', 'is-active', 'feature-layer-to-cot.service'], capture_output=True, text=True)
         esri_tak_running = r.stdout.strip() == 'active'
     modules['esri_takserver_sync'] = {
-        'name': '🗺️ FeatureLayer → CoT',
+        'name': 'FeatureLayer → CoT',
         'installed': esri_tak_installed,
         'running': esri_tak_running,
         'description': 'Broadcasts Esri Feature Layer records as CoT to TAK Server',
@@ -12307,7 +12307,7 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:'DM Sans',s
 {{ sidebar_html }}
 <div class="main">
   <div class="page-header">
-    <h1>🗺️ FeatureLayer → CoT</h1>
+    <h1>FeatureLayer → CoT</h1>
     <p>Polls an Esri Feature Layer and broadcasts records as CoT events to TAK Server. Install dir: <code>{{ install_dir }}</code></p>
   </div>
 
