@@ -12168,13 +12168,22 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:'DM Sans',s
       <button class="btn btn-ghost" disabled>⏳ Installing…</button>
       {% elif deploy_done %}
       <div id="deploy-log-box" class="log-box" style="margin-bottom:16px"></div>
-      <button id="deploy-btn" class="btn btn-success" onclick="startDeploy()">✓ Deployed — Re-Deploy</button>
+      <div style="display:flex;align-items:center;gap:12px">
+        <button id="deploy-btn" class="btn btn-success" onclick="startDeploy()">✓ Deployed — Re-Deploy</button>
+        <span id="deploy-status-msg" style="font-size:13px;color:var(--green)">✓ Done</span>
+      </div>
       {% elif deploy_error %}
       <div id="deploy-log-box" class="log-box" style="margin-bottom:16px"></div>
-      <button id="deploy-btn" class="btn btn-danger" onclick="startDeploy()">✗ Failed — Retry</button>
+      <div style="display:flex;align-items:center;gap:12px">
+        <button id="deploy-btn" class="btn btn-danger" onclick="startDeploy()">✗ Failed — Retry</button>
+        <span id="deploy-status-msg" style="font-size:13px;color:var(--red)">Failed</span>
+      </div>
       {% else %}
       <div id="deploy-log-box" class="log-box" style="display:none;margin-bottom:16px"></div>
-      <button id="deploy-btn" class="btn btn-primary" onclick="startDeploy()">🚀 Deploy</button>
+      <div style="display:flex;align-items:center;gap:12px">
+        <button id="deploy-btn" class="btn btn-primary" onclick="startDeploy()">🚀 Deploy</button>
+        <span id="deploy-status-msg" style="font-size:13px;color:var(--text-dim)"></span>
+      </div>
       {% endif %}
     </div>
 
@@ -12309,6 +12318,15 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:'DM Sans',s
         <div class="form-group">
           <label class="form-label">Stale (minutes)</label>
           <input id="stale_minutes" class="form-input" type="number" placeholder="5" value="{{ cfg.stale_minutes or '5' }}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">CoT How <span style="font-weight:400;color:var(--text-dim)">(position source)</span></label>
+          <select id="cot_how" class="form-input">
+            <option value="m-g" {% if (cfg.cot_how or 'm-g')=='m-g' %}selected{% endif %}>m-g — GPS</option>
+            <option value="h-g-i-g-o" {% if cfg.cot_how=='h-g-i-g-o' %}selected{% endif %}>h-g-i-g-o — INS</option>
+            <option value="h-e" {% if cfg.cot_how=='h-e' %}selected{% endif %}>h-e — Human estimated</option>
+            <option value="m-f" {% if cfg.cot_how=='m-f' %}selected{% endif %}>m-f — Calculated</option>
+          </select>
         </div>
       </div>
       <div class="form-group">
@@ -12751,6 +12769,7 @@ function saveConfig(){
     lon_field:document.getElementById('lon_field').value,
     altitude_field:document.getElementById('altitude_field').value,
     stale_minutes:parseInt(document.getElementById('stale_minutes').value)||5,
+    cot_how:document.getElementById('cot_how').value,
     remarks_fields:document.getElementById('remarks_fields').value,
     delta_enabled:document.getElementById('delta_enabled').value==='1',
     delta_field:document.getElementById('delta_field').value
@@ -13065,9 +13084,8 @@ document.addEventListener('keydown',function(e){
   if(e.key==='Escape'){var m=document.getElementById('icon-picker-modal');if(m&&m.style.display!=='none')closePicker();}
 });
 // Close picker when clicking the backdrop
-document.getElementById('icon-picker-modal').addEventListener('click',function(e){
-  if(e.target===this)closePicker();
-});
+var _pm=document.getElementById('icon-picker-modal');
+if(_pm)_pm.addEventListener('click',function(e){if(e.target===this)closePicker();});
 </script>
 </body></html>'''
 
