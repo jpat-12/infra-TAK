@@ -11680,7 +11680,7 @@ def _run_esri_tak_sync_install():
         plog("")
         plog("━━━ Step 3/6: Writing config.json ━━━")
         config_path = os.path.join(ESRI_TAK_SYNC_DIR, 'config.json')
-        auth_mode = (cfg.get('tak_auth_mode') or 'plain').strip()
+        auth_mode = (cfg.get('tak_auth_mode') or 'cert').strip()
         config_data = {
             "tak_server": {
                 "host":          (cfg.get('tak_host') or 'localhost').strip(),
@@ -12428,8 +12428,8 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:'DM Sans',s
       <div class="form-group">
         <label class="form-label">Auth Mode</label>
         <select id="tak_auth_mode" class="form-input">
-          <option value="cert" {% if cfg.get('tak_auth_mode','plain')=='cert' %}selected{% endif %}>TLS/Cert (port 8089)</option>
-          <option value="plain" {% if cfg.get('tak_auth_mode','plain')!='cert' %}selected{% endif %}>Plain TCP (port 8087)</option>
+          <option value="cert" {% if cfg.get('tak_auth_mode','cert')=='cert' %}selected{% endif %}>TLS/Cert (port 8089)</option>
+          <option value="plain" {% if cfg.get('tak_auth_mode','cert')!='cert' %}selected{% endif %}>Plain TCP (port 8087)</option>
         </select>
       </div>
       <div class="form-group">
