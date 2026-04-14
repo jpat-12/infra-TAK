@@ -443,26 +443,6 @@ class TAKClient:
             self.connect()
             self._sock.sendall(data)
 
-    def send_keepalive(self):
-        """
-        Send a minimal CoT SA ping to keep the connection alive between polls.
-        TAK Server drops idle connections; this prevents that.
-        """
-        now   = datetime.now(timezone.utc)
-        stale = now + timedelta(minutes=1)
-        ping  = (
-            f'<event version="2.0" uid="EsriSync-keepalive" type="t-x-c-t" '
-            f'time="{_fmt_time(now)}" start="{_fmt_time(now)}" stale="{_fmt_time(stale)}" '
-            f'how="m-g">'
-            f'<point lat="0" lon="0" hae="0" ce="9999999.0" le="9999999.0"/>'
-            f'<detail/>'
-            f'</event>'
-        )
-        try:
-            self.send(ping)
-            log.debug("Keepalive sent")
-        except Exception as exc:
-            log.warning("Keepalive failed: %s", exc)
 
     # ── Close ─────────────────────────────────────────────────────────────────
 
@@ -556,29 +536,28 @@ def main():
 
     layer = FeatureLayerClient(cfg)
     tak   = TAKClient(cfg)
-    tak.connect()
 
     log.info(
         "Poll loop started (interval=%ds, auth_mode=%s, delta=%s)",
         poll_interval, tak.auth_mode, delta.enabled
     )
 
-    # Send a keepalive every 15 s during idle to prevent TAK Server
-    # from dropping the connection between polls.
-    KEEPALIVE_INTERVAL = 15
-
     while _running:
         try:
             features = layer.fetch_all()
             sent = 0
-            for feat in features:
-                attrs   = feat.get("attributes", {})
-                uid_val = attrs.get(fm.get("uid_field", "OBJECTID"), "unknown")
-                uid     = f"{fm.get('uid_prefix', 'EsriSync')}_{uid_val}"
-                if delta.is_new_or_changed(uid, attrs):
-                    cot = build_cot(feat, fm, cot_cfg, icon_cfg)
-                    tak.send(cot)
-                    sent += 1
+            tak.connect()
+            try:
+                for feat in features:
+                    attrs   = feat.get("attributes", {})
+                    uid_val = attrs.get(fm.get("uid_field", "OBJECTID"), "unknown")
+                    uid     = f"{fm.get('uid_prefix', 'EsriSync')}_{uid_val}"
+                    if delta.is_new_or_changed(uid, attrs):
+                        cot = build_cot(feat, fm, cot_cfg, icon_cfg)
+                        tak.send(cot)
+                        sent += 1
+            finally:
+                tak.close()
             delta.commit()
             log.info("Poll complete — sent %d / %d records", sent, len(features))
 
@@ -587,15 +566,12 @@ def main():
         except Exception as exc:
             log.exception("Unexpected error: %s", exc)
 
-        # Interruptible sleep with periodic keepalives
+        # Interruptible sleep
         elapsed = 0
         while elapsed < poll_interval and _running:
             time.sleep(1)
             elapsed += 1
-            if elapsed % KEEPALIVE_INTERVAL == 0 and _running:
-                tak.send_keepalive()
 
-    tak.close()
     log.info("Stopped.")
 
 
