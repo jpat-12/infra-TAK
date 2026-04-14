@@ -550,7 +550,7 @@ def main():
     cot_cfg       = cfg["cot"]
     icon_cfg      = cfg.get("icon_mapping", {})
     delta         = DeltaTracker(
-        cfg["delta"].get("enabled", True),
+        cfg["delta"].get("enabled", False),
         cfg["delta"].get("track_field", "EditDate")
     )
 

@@ -11715,7 +11715,7 @@ def _run_esri_tak_sync_install():
                 "how":           (cfg.get('cot_how') or 'm-g').strip()
             },
             "delta": {
-                "enabled":     bool(cfg.get('delta_enabled', True)),
+                "enabled":     bool(cfg.get('delta_enabled', False)),
                 "track_field": (cfg.get('delta_field') or 'EditDate').strip()
             },
             "icon_mapping": {
@@ -12551,8 +12551,8 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:'DM Sans',s
         <div class="form-group">
           <label class="form-label">Delta Mode</label>
           <select id="delta_enabled" class="form-input">
-            <option value="1" {% if cfg.get('delta_enabled', True) %}selected{% endif %}>Enabled — only send new/changed records</option>
-            <option value="0" {% if not cfg.get('delta_enabled', True) %}selected{% endif %}>Disabled — broadcast all records every poll</option>
+            <option value="1" {% if cfg.get('delta_enabled', False) %}selected{% endif %}>Enabled — only send new/changed records</option>
+            <option value="0" {% if not cfg.get('delta_enabled', False) %}selected{% endif %}>Disabled — broadcast all records every poll</option>
           </select>
         </div>
         <div class="form-group">
