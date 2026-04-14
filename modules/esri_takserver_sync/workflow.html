@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>FeatureLayer → CoT — Data Flow</title>
+<style>
+  :root {
+    --bg:#0f1623;--bg-card:#1a2235;--surface:#1e2a3a;--border:#2a3a50;
+    --text-primary:#e2e8f0;--text-secondary:#94a3b8;--text-dim:#64748b;
+    --accent:#3b82f6;--cyan:#06b6d4;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text-primary);font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:40px 20px}
+  h1{font-size:22px;font-weight:700;margin-bottom:6px;color:var(--text-primary)}
+  .subtitle{font-size:13px;color:var(--text-secondary);margin-bottom:36px}
+  .card{background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:32px 28px;width:100%;max-width:860px}
+  /* workflow */
+  .wf-wrap{display:flex;flex-direction:column;align-items:center;gap:0;width:100%;position:relative}
+  .wf-row{display:flex;align-items:center;justify-content:center;gap:0;width:100%;flex-wrap:nowrap}
+  .wf-node{position:relative;background:var(--bg-card);border:1.5px solid var(--border);border-radius:12px;padding:14px 20px;min-width:170px;max-width:220px;text-align:center;cursor:default;transition:border-color .2s,box-shadow .2s;flex-shrink:0}
+  .wf-node:hover{border-color:var(--accent);box-shadow:0 0 18px rgba(59,130,246,.25)}
+  .wf-node .wf-icon{font-size:28px;line-height:1;margin-bottom:6px}
+  .wf-node .wf-label{font-size:13px;font-weight:600;color:var(--text-primary)}
+  .wf-node .wf-sub{font-size:11px;color:var(--text-dim);margin-top:3px}
+  .wf-arrow{display:flex;align-items:center;justify-content:center;width:56px;flex-shrink:0;position:relative;cursor:default}
+  .wf-arrow svg{overflow:visible}
+  .wf-arrow:hover .wf-arr-line{stroke:var(--accent)}
+  .wf-arrow:hover .wf-arr-tip{fill:var(--accent)}
+  .wf-arrow-v{display:flex;flex-direction:column;align-items:center;height:52px;cursor:default;position:relative}
+  .wf-arrow-v:hover .wf-arr-line{stroke:var(--accent)}
+  .wf-arrow-v:hover .wf-arr-tip{fill:var(--accent)}
+  .wf-arr-line{stroke:#334155;stroke-width:2;transition:stroke .2s}
+  .wf-arr-tip{fill:#334155;transition:fill .2s}
+  .wf-tooltip{visibility:hidden;opacity:0;position:absolute;z-index:200;background:#1e2736;border:1px solid var(--border);border-radius:10px;padding:12px 16px;width:260px;font-size:12px;color:var(--text-secondary);line-height:1.6;pointer-events:none;transition:opacity .18s;box-shadow:0 8px 32px rgba(0,0,0,.5)}
+  .wf-tooltip strong{color:var(--text-primary);display:block;margin-bottom:4px;font-size:13px}
+  .wf-tooltip code{background:rgba(255,255,255,.07);border-radius:4px;padding:1px 5px;font-size:11px;font-family:'JetBrains Mono',monospace}
+  .wf-node:hover .wf-tooltip,.wf-arrow:hover .wf-tooltip,.wf-arrow-v:hover .wf-tooltip{visibility:visible;opacity:1}
+  .tt-above{bottom:calc(100% + 10px);left:50%;transform:translateX(-50%)}
+  .tt-below{top:calc(100% + 10px);left:50%;transform:translateX(-50%)}
+  .tt-left{right:calc(100% + 10px);top:50%;transform:translateY(-50%)}
+  .tt-right{left:calc(100% + 10px);top:50%;transform:translateY(-50%)}
+  .wf-side{display:flex;flex-direction:column;gap:10px;align-items:flex-start}
+  .wf-side-node{position:relative;background:var(--bg-card);border:1.5px dashed var(--border);border-radius:10px;padding:10px 14px;min-width:140px;font-size:12px;cursor:default;transition:border-color .2s}
+  .wf-side-node:hover{border-color:var(--cyan)}
+  .wf-side-node .wf-label{font-size:12px;font-weight:600;color:var(--text-secondary)}
+  .wf-side-node .wf-sub{font-size:11px;color:var(--text-dim);margin-top:2px}
+  .wf-side-node:hover .wf-tooltip{visibility:visible;opacity:1}
+  .legend{margin-top:28px;padding-top:18px;border-top:1px solid var(--border);font-size:12px;color:var(--text-dim);display:flex;gap:24px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+
+<h1>🗺️ FeatureLayer → CoT</h1>
+<p class="subtitle">Hover over any node or arrow to learn more about that part of the pipeline.</p>
+
+<div class="card">
+  <div class="wf-wrap">
+
+    <!-- Row 1: Esri Feature Layer -->
+    <div class="wf-row">
+      <div class="wf-node" style="border-color:#0ea5e9">
+        <div class="wf-icon">🗄️</div>
+        <div class="wf-label">Esri Feature Layer</div>
+        <div class="wf-sub">ArcGIS Online or Enterprise</div>
+        <div class="wf-tooltip tt-below" style="width:280px">
+          <strong>Esri Feature Layer</strong>
+          The source of truth. Can be hosted on ArcGIS Online or your own ArcGIS Enterprise portal.
+          Supports public layers (no auth) and private layers (username/password token auth).
+          2FA-protected accounts are not compatible — use a service account.
+          <br><br>Records are fetched via the Feature Layer REST API with pagination (up to 1000 records per page).
+        </div>
+      </div>
+    </div>
+
+    <!-- Arrow down -->
+    <div class="wf-arrow-v">
+      <svg width="2" height="52" style="overflow:visible"><line class="wf-arr-line" x1="1" y1="0" x2="1" y2="44"/><polygon class="wf-arr-tip" points="1,52 -5,38 7,38"/></svg>
+      <div class="wf-tooltip tt-right" style="top:0;transform:none;margin-top:-10px">
+        <strong>REST API Poll</strong>
+        The poller sends an HTTP GET to the Feature Layer's <code>/query</code> endpoint every N seconds (configurable).
+        It requests all fields, WGS84 coordinates, and up to 1000 records per page.
+        When delta tracking is enabled, only records modified since the last run are fetched.
+      </div>
+    </div>
+
+    <!-- Row 2: Python Poller + side nodes -->
+    <div class="wf-row" style="gap:18px">
+      <div class="wf-side" style="align-items:flex-end">
+        <div class="wf-side-node">
+          <div class="wf-icon" style="font-size:18px">📄</div>
+          <div class="wf-label">config.json</div>
+          <div class="wf-sub">TAK host, auth mode, field mappings</div>
+          <div class="wf-tooltip tt-right">
+            <strong>config.json</strong>
+            Stored at <code>/opt/Esri-TAKServer-Sync/config.json</code>.
+            Defines the TAK Server host/port, auth mode (cert or plain TCP),
+            Feature Layer URL, field mapping (lat/lon/callsign/cot_type),
+            delta tracking settings, and icon mapping rules.
+            Written by infra-TAK on each deploy or config save.
+          </div>
+        </div>
+        <div class="wf-side-node">
+          <div class="wf-icon" style="font-size:18px">💾</div>
+          <div class="wf-label">delta-state.json</div>
+          <div class="wf-sub">Tracks last-seen EditDate per UID</div>
+          <div class="wf-tooltip tt-right">
+            <strong>Delta State</strong>
+            Persisted to <code>/opt/Esri-TAKServer-Sync/delta-state.json</code>.
+            When delta mode is on, only records with an EditDate newer than the stored value are sent — reducing bandwidth and TAK Server load.
+            Delete this file to force a full re-broadcast on next start.
+          </div>
+        </div>
+      </div>
+
+      <div class="wf-node" style="border-color:#8b5cf6;min-width:200px">
+        <div class="wf-icon">🐍</div>
+        <div class="wf-label">feature-layer-to-cot.py</div>
+        <div class="wf-sub">Python poller + CoT builder</div>
+        <div class="wf-tooltip tt-below" style="width:300px">
+          <strong>Python Worker Script</strong>
+          Runs as a systemd service (<code>feature-layer-to-cot.service</code>).
+          On each poll cycle it:
+          <br>1. Fetches all (or changed) records from the Feature Layer
+          <br>2. Maps lat/lon/callsign/type fields to CoT attributes
+          <br>3. Optionally resolves an icon path from the icon mapping table
+          <br>4. Builds a CoT XML <code>&lt;event&gt;</code> element for each record
+          <br>5. Streams them to TAK Server over the open TCP/TLS connection
+          <br>6. Sends a keepalive ping every 15 s to keep the connection alive
+        </div>
+      </div>
+
+      <div class="wf-side" style="align-items:flex-start">
+        <div class="wf-side-node">
+          <div class="wf-icon" style="font-size:18px">🎨</div>
+          <div class="wf-label">icons/*.zip</div>
+          <div class="wf-sub">Uploaded ATAK/WinTAK iconsets</div>
+          <div class="wf-tooltip tt-left">
+            <strong>Icon Mapping</strong>
+            Iconset <code>.zip</code> files are stored in <code>/opt/Esri-TAKServer-Sync/icons/</code>.
+            Each zip must contain an <code>iconset.xml</code> with a <code>uid</code> attribute.
+            The Icons tab lets you assign a column value → iconset path mapping.
+            The poller injects <code>&lt;usericon iconsetpath="uuid/group/icon.png"/&gt;</code>
+            into each CoT event so ATAK/WinTAK renders the correct icon.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Arrow down: two paths -->
+    <div class="wf-row" style="gap:0;margin-top:0">
+      <div style="display:flex;flex-direction:column;align-items:center;margin-right:60px">
+        <div class="wf-arrow-v">
+          <svg width="2" height="52" style="overflow:visible"><line class="wf-arr-line" x1="1" y1="0" x2="1" y2="44"/><polygon class="wf-arr-tip" points="1,52 -5,38 7,38"/></svg>
+          <div class="wf-tooltip tt-left">
+            <strong>TLS/Cert Mode (port 8089)</strong>
+            Uses mTLS — the client presents a <code>.p12</code> certificate.
+            TAK Server validates it against its trusted CA list.
+            Use <code>certmanager.sh client esri-push</code> to generate a CA-signed cert,
+            then enroll it via <code>UserManager.jar certmod -A</code>.
+            Extract PEM sidecars with <code>openssl pkcs12 -legacy ...</code>.
+          </div>
+        </div>
+        <div style="font-size:11px;color:#64748b;margin-top:2px">cert (8089)</div>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:center;margin-left:60px">
+        <div class="wf-arrow-v">
+          <svg width="2" height="52" style="overflow:visible"><line class="wf-arr-line" x1="1" y1="0" x2="1" y2="44"/><polygon class="wf-arr-tip" points="1,52 -5,38 7,38"/></svg>
+          <div class="wf-tooltip tt-right">
+            <strong>Plain TCP Mode (port 8087)</strong>
+            Unencrypted TCP connection — simpler to set up but traffic is not encrypted.
+            Only use on a private/trusted network.
+            TAK Server must have a plain TCP input configured in <code>CoreConfig.xml</code>
+            (many default TAK Server installs have only TLS enabled on 8089).
+          </div>
+        </div>
+        <div style="font-size:11px;color:#64748b;margin-top:2px">plain (8087)</div>
+      </div>
+    </div>
+
+    <!-- Row 3: TAK Server -->
+    <div class="wf-row">
+      <div class="wf-node" style="border-color:#10b981">
+        <div class="wf-icon">🖥️</div>
+        <div class="wf-label">TAK Server</div>
+        <div class="wf-sub">Streams CoT to connected clients</div>
+        <div class="wf-tooltip tt-above">
+          <strong>TAK Server</strong>
+          Receives the CoT XML stream and fans it out to all connected clients in the configured group.
+          <br><br>The <code>esri-push</code> user/cert is enrolled in a TAK group (e.g. <em>__ANON__</em> or a custom group).
+          All clients subscribed to that group will see the PLIs.
+          <br><br>Stale time is configurable — records disappear from maps after N minutes if not refreshed.
+        </div>
+      </div>
+    </div>
+
+    <!-- Arrow down -->
+    <div class="wf-arrow-v">
+      <svg width="2" height="52" style="overflow:visible"><line class="wf-arr-line" x1="1" y1="0" x2="1" y2="44"/><polygon class="wf-arr-tip" points="1,52 -5,38 7,38"/></svg>
+      <div class="wf-tooltip tt-right">
+        <strong>CoT Distribution</strong>
+        TAK Server sends CoT events to all connected ATAK, WinTAK, iTAK, and TAKX clients.
+        Each Feature Layer record appears as a PLI (Position Location Information) dot on the map
+        with its callsign label and — if icon mapping is configured — a custom icon.
+      </div>
+    </div>
+
+    <!-- Row 4: Clients -->
+    <div class="wf-row" style="gap:18px">
+      <div class="wf-node" style="min-width:130px">
+        <div class="wf-icon">📱</div>
+        <div class="wf-label">ATAK</div>
+        <div class="wf-sub">Android TAK</div>
+        <div class="wf-tooltip tt-above">
+          <strong>ATAK (Android)</strong>
+          Feature Layer records appear as PLI markers. Custom icons render if the matching
+          iconset UUID is installed on the device. Remarks fields appear in the detail callout.
+        </div>
+      </div>
+      <div class="wf-node" style="min-width:130px">
+        <div class="wf-icon">💻</div>
+        <div class="wf-label">WinTAK</div>
+        <div class="wf-sub">Windows TAK</div>
+        <div class="wf-tooltip tt-above">
+          <strong>WinTAK (Windows)</strong>
+          Same CoT stream. The bundled <em>Incident Icons</em> iconset is already
+          installed in WinTAK by default — icons from that set will render immediately.
+        </div>
+      </div>
+      <div class="wf-node" style="min-width:130px">
+        <div class="wf-icon">🌐</div>
+        <div class="wf-label">TAK Web / iTAK</div>
+        <div class="wf-sub">Browser / iOS</div>
+        <div class="wf-tooltip tt-above">
+          <strong>TAK Web / iTAK</strong>
+          Any CoT-compatible client connected to the same TAK Server and group
+          will receive the Feature Layer records in real time.
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /wf-wrap -->
+
+  <div class="legend">
+    <span>⬛ Solid border = active data path</span>
+    <span>⬜ Dashed border = supporting component</span>
+    <span>ℹ️ Hover any node or arrow for details</span>
+  </div>
+</div>
+
+</body>
+</html>
