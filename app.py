@@ -12403,10 +12403,15 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:'DM Sans',s
 
     <!-- Icon picker modal -->
     <div id="icon-picker-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;align-items:center;justify-content:center">
-      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:24px;width:min(700px,95vw);max-height:80vh;display:flex;flex-direction:column;gap:16px">
+      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:24px;width:min(760px,95vw);max-height:85vh;display:flex;flex-direction:column;gap:14px">
         <div style="display:flex;justify-content:space-between;align-items:center">
           <span style="font-size:15px;font-weight:600">Pick an Icon</span>
           <button class="btn btn-ghost" style="padding:6px 12px" onclick="closePicker()">✕ Close</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <input id="picker-search" class="form-input" type="text" placeholder="🔍  Search icons…"
+                 style="flex:1;font-size:13px" oninput="_pickerFilter(this.value)">
+          <span id="picker-count" style="font-size:12px;color:var(--text-dim);white-space:nowrap"></span>
         </div>
         <div id="picker-grid" style="overflow-y:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:10px;padding:4px"></div>
       </div>
@@ -12947,33 +12952,72 @@ function _rebuildRowsDOM(){
 
 function _esc(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');}
 
+// Flat list of all icons built once when picker opens: [{set,name,path}]
+var _pickerAllIcons=[];
+
 function openPicker(rowIdx){
   _pickerTarget=rowIdx;
   var modal=document.getElementById('icon-picker-modal');
   var grid=document.getElementById('picker-grid');
+  var search=document.getElementById('picker-search');
   if(!modal||!grid)return;
-  // build icon grid from all installed iconsets
-  var html='';
+  // Build flat icon list from all installed iconsets
+  _pickerAllIcons=[];
   _iconsets.forEach(function(s){
-    html+='<div style="font-size:12px;font-weight:600;color:var(--text-secondary);padding:8px 0 4px;grid-column:1/-1">'+s.name+'</div>';
     s.icons.forEach(function(ic){
+      _pickerAllIcons.push({set:s.name, name:ic.name, path:ic.path});
+    });
+  });
+  if(search){search.value='';search.focus();}
+  _pickerFilter('');
+  modal.style.display='flex';
+}
+
+function _pickerFilter(q){
+  var grid=document.getElementById('picker-grid');
+  var countEl=document.getElementById('picker-count');
+  if(!grid)return;
+  var term=q.trim().toLowerCase();
+  var filtered=term?_pickerAllIcons.filter(function(ic){
+    return ic.name.toLowerCase().indexOf(term)!==-1||ic.set.toLowerCase().indexOf(term)!==-1;
+  }):_pickerAllIcons;
+  if(countEl)countEl.textContent=filtered.length+' icon'+(filtered.length===1?'':'s');
+  if(!filtered.length){
+    grid.innerHTML='<p style="color:var(--text-dim);font-size:13px;grid-column:1/-1">'
+      +(_pickerAllIcons.length?'No icons match "'+_esc(q)+'".':'No iconsets installed. Upload one in the Upload card above.')
+      +'</p>';
+    return;
+  }
+  // Group by iconset name
+  var groups={};var order=[];
+  filtered.forEach(function(ic){
+    if(!groups[ic.set]){groups[ic.set]=[];order.push(ic.set);}
+    groups[ic.set].push(ic);
+  });
+  var html='';
+  order.forEach(function(setName){
+    // Only show group header when not filtering, or when >1 group matches
+    if(!term||order.length>1){
+      html+='<div style="font-size:12px;font-weight:600;color:var(--text-secondary);padding:8px 0 4px;grid-column:1/-1">'+_esc(setName)+'</div>';
+    }
+    groups[setName].forEach(function(ic){
       var imgPath='/api/esri-tak-sync/icons/img/'+encodeURI(ic.path);
       html+='<div onclick="pickIcon(this.dataset.path)" data-path="'+_esc(ic.path)+'" title="'+_esc(ic.name)+'" '
-           +'style="display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--surface)">'
-           +'<img src="'+imgPath+'" style="width:32px;height:32px;object-fit:contain">'
-           +'<span style="font-size:10px;color:var(--text-secondary);text-align:center;word-break:break-word">'+_esc(ic.name)+'</span>'
+           +'style="display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);transition:border-color .15s" '
+           +'onmouseover="this.style.borderColor=\'var(--accent)\'" onmouseout="this.style.borderColor=\'var(--border)\'">'
+           +'<img src="'+imgPath+'" style="width:32px;height:32px;object-fit:contain" loading="lazy">'
+           +'<span style="font-size:10px;color:var(--text-secondary);text-align:center;word-break:break-word;line-height:1.3">'+_esc(ic.name)+'</span>'
            +'</div>';
     });
   });
-  if(!html)html='<p style="color:var(--text-dim);font-size:13px;grid-column:1/-1">No iconsets installed. Upload one in the Upload card above.</p>';
   grid.innerHTML=html;
-  modal.style.display='flex';
 }
 
 function closePicker(){
   var modal=document.getElementById('icon-picker-modal');
   if(modal)modal.style.display='none';
   _pickerTarget=null;
+  _pickerAllIcons=[];
 }
 
 function pickIcon(iconsetpath){
@@ -13017,6 +13061,14 @@ function saveIconMapping(){
 {% if deploying %}
 _logPoll=setInterval(pollLog,1200);
 {% endif %}
+// Close picker on Escape key
+document.addEventListener('keydown',function(e){
+  if(e.key==='Escape'){var m=document.getElementById('icon-picker-modal');if(m&&m.style.display!=='none')closePicker();}
+});
+// Close picker when clicking the backdrop
+document.getElementById('icon-picker-modal').addEventListener('click',function(e){
+  if(e.target===this)closePicker();
+});
 </script>
 </body></html>'''
 
