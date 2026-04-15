@@ -26,7 +26,7 @@ Polls an Esri Feature Layer (ArcGIS Online or Enterprise) and broadcasts each re
 
 ```bash
 cd /opt/tak/certs
-./makeCert.sh Client esri-push
+./makeCert.sh client esri-push
 # Then trust it:
 sudo java -jar /opt/tak/utils/UserManager.jar certmod -A /opt/tak/certs/files/esri-push.p12
 ```

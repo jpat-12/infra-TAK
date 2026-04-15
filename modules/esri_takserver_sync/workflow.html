@@ -156,7 +156,7 @@
             <strong>TLS/Cert Mode (port 8089)</strong>
             Uses mTLS — the client presents a <code>.p12</code> certificate.
             TAK Server validates it against its trusted CA list.
-            Use <code>cd /opt/tak/certs && ./makeCert.sh Client esri-push</code> to generate a CA-signed cert,
+            Use <code>cd /opt/tak/certs && ./makeCert.sh client esri-push</code> to generate a CA-signed cert,
             then enroll it via <code>UserManager.jar certmod -A</code>.
             Extract PEM sidecars with <code>openssl pkcs12 -legacy ...</code>.
           </div>

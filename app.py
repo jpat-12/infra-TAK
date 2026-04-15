@@ -11837,7 +11837,7 @@ def _run_esri_tak_sync_cert_setup(mode, password, cert_name):
             plog('━━━ Step 1/3: Generating cert with makeCert.sh ━━━')
             certs_tak_dir = os.path.join(tak_dir, 'certs')
             # Capital 'Client' is required by makeCert.sh; pipe 'y' to answer any prompts
-            cmd = f'echo "y" | ./makeCert.sh Client {cert_name}'
+            cmd = f'echo "y" | ./makeCert.sh client {cert_name}'
             plog(f'  Running: {cmd}')
             r = subprocess.run(cmd, shell=True, capture_output=True, text=True,
                                timeout=120, cwd=certs_tak_dir)
