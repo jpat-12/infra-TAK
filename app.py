@@ -12255,6 +12255,112 @@ def esri_tak_sync_icons_save_mapping():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/esri-tak-sync/layer-columns')
+@login_required
+def esri_tak_sync_layer_columns():
+    """Return field names from the configured Feature Layer (hits the layer metadata endpoint)."""
+    try:
+        cfg = _esri_tak_sync_load_config()
+        url = cfg.get('layer_url', '').rstrip('/')
+        if not url:
+            return jsonify({'error': 'No layer URL configured — save Config first'}), 400
+        params = {'f': 'json'}
+        if not cfg.get('layer_public', True):
+            # Private layer — obtain token
+            try:
+                layer_type = cfg.get('layer_type', 'online').lower()
+                portal_url = cfg.get('portal_url', '')
+                username   = cfg.get('esri_username', '')
+                password   = cfg.get('esri_password', '')
+                if layer_type == 'online':
+                    token_url = 'https://www.arcgis.com/sharing/rest/generateToken'
+                else:
+                    if not portal_url:
+                        from urllib.parse import urlparse
+                        p = urlparse(url)
+                        parts = [s for s in p.path.split('/') if s.lower() not in ('server','arcgis','rest','services')]
+                        portal_url = f"{p.scheme}://{p.netloc}{'/'.join(parts)}/portal"
+                    token_url = f"{portal_url.rstrip('/')}/sharing/rest/generateToken"
+                tr = requests.post(token_url, data={'username': username, 'password': password,
+                    'referer': 'http://localhost', 'expiration': 60, 'f': 'json'}, timeout=15)
+                tr.raise_for_status()
+                td = tr.json()
+                if 'token' in td:
+                    params['token'] = td['token']
+            except Exception as te:
+                return jsonify({'error': f'Token error: {te}'}), 400
+        resp = requests.get(url, params=params, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        if 'error' in data:
+            return jsonify({'error': data['error'].get('message', str(data['error']))}), 400
+        fields = [f['name'] for f in data.get('fields', []) if f.get('name')]
+        return jsonify({'columns': fields})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/esri-tak-sync/layer-values')
+@login_required
+def esri_tak_sync_layer_values():
+    """Return distinct values for a column in the configured Feature Layer."""
+    column = request.args.get('column', '').strip()
+    if not column:
+        return jsonify({'error': 'column parameter required'}), 400
+    try:
+        cfg = _esri_tak_sync_load_config()
+        url = cfg.get('layer_url', '').rstrip('/')
+        if not url:
+            return jsonify({'error': 'No layer URL configured — save Config first'}), 400
+        params = {
+            'where': '1=1',
+            'outFields': column,
+            'returnDistinctValues': 'true',
+            'returnGeometry': 'false',
+            'resultRecordCount': 500,
+            'f': 'json',
+        }
+        if not cfg.get('layer_public', True):
+            try:
+                layer_type = cfg.get('layer_type', 'online').lower()
+                portal_url = cfg.get('portal_url', '')
+                username   = cfg.get('esri_username', '')
+                password   = cfg.get('esri_password', '')
+                if layer_type == 'online':
+                    token_url = 'https://www.arcgis.com/sharing/rest/generateToken'
+                else:
+                    if not portal_url:
+                        from urllib.parse import urlparse
+                        p = urlparse(url)
+                        parts = [s for s in p.path.split('/') if s.lower() not in ('server','arcgis','rest','services')]
+                        portal_url = f"{p.scheme}://{p.netloc}{'/'.join(parts)}/portal"
+                    token_url = f"{portal_url.rstrip('/')}/sharing/rest/generateToken"
+                tr = requests.post(token_url, data={'username': username, 'password': password,
+                    'referer': 'http://localhost', 'expiration': 60, 'f': 'json'}, timeout=15)
+                tr.raise_for_status()
+                td = tr.json()
+                if 'token' in td:
+                    params['token'] = td['token']
+            except Exception as te:
+                return jsonify({'error': f'Token error: {te}'}), 400
+        resp = requests.get(f'{url}/query', params=params, timeout=20)
+        resp.raise_for_status()
+        data = resp.json()
+        if 'error' in data:
+            return jsonify({'error': data['error'].get('message', str(data['error']))}), 400
+        values = []
+        for feat in data.get('features', []):
+            val = feat.get('attributes', {}).get(column)
+            if val is not None:
+                s = str(val).strip()
+                if s:
+                    values.append(s)
+        values.sort(key=lambda x: x.lower())
+        return jsonify({'values': values, 'column': column})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 ESRI_TAK_SYNC_TEMPLATE = '''<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>FeatureLayer → CoT — infra-TAK</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -12593,10 +12699,17 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:'DM Sans',s
       <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px">
         Pick a column whose values determine which icon each PLI gets. Assign an icon to each value, then set a fallback for unmapped values.
       </p>
+      <datalist id="col-datalist"></datalist>
       <div class="grid2" style="margin-bottom:14px">
         <div class="form-group">
           <label class="form-label">Mapping Column</label>
-          <input id="icon-column" class="form-input" type="text" placeholder="e.g. select_a_waypoint_of_what_you_a" value="{{ cfg.icon_column or '' }}">
+          <div style="display:flex;gap:8px;align-items:center">
+            <input id="icon-column" class="form-input" type="text" list="col-datalist"
+                   placeholder="e.g. STATUS" value="{{ cfg.icon_column or '' }}" style="flex:1">
+            <button class="btn btn-ghost" style="white-space:nowrap;padding:6px 12px;font-size:12px"
+                    id="fetch-cols-btn" onclick="fetchLayerColumns()" title="Load column names from the Feature Layer">↻ Load</button>
+          </div>
+          <p id="fetch-cols-msg" style="font-size:11px;color:var(--text-dim);margin-top:4px"></p>
         </div>
         <div class="form-group">
           <label class="form-label">Enable Icon Mapping</label>
@@ -12620,7 +12733,7 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:'DM Sans',s
 
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <span class="form-label" style="margin:0">Value Mappings</span>
-        <button class="btn btn-ghost" style="padding:6px 14px;font-size:12px" onclick="addMappingRow()">+ Add Row</button>
+        <button class="btn btn-ghost" style="padding:6px 14px;font-size:12px" id="add-row-btn" onclick="addMappingRow()">+ Add Row</button>
       </div>
       <div id="mapping-rows" style="display:flex;flex-direction:column;gap:8px"></div>
 
@@ -12644,6 +12757,23 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:'DM Sans',s
           <span id="picker-count" style="font-size:12px;color:var(--text-dim);white-space:nowrap"></span>
         </div>
         <div id="picker-grid" style="overflow-y:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:10px;padding:4px"></div>
+      </div>
+    </div>
+
+    <!-- Value picker modal (distinct column values) -->
+    <div id="value-picker-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1001;align-items:center;justify-content:center">
+      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:24px;width:min(540px,95vw);max-height:80vh;display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="font-size:15px;font-weight:600">Pick a value from <em id="value-picker-col-label" style="color:var(--cyan)"></em></span>
+          <button class="btn btn-ghost" style="padding:6px 12px" onclick="closeValuePicker()">✕</button>
+        </div>
+        <p style="font-size:12px;color:var(--text-dim);margin:0">Click a value to add a mapping row for it, or use <strong>Other</strong> to type one manually.</p>
+        <div id="value-picker-loading" style="font-size:13px;color:var(--text-dim)">Loading values…</div>
+        <div id="value-picker-chips" style="display:flex;flex-wrap:wrap;gap:8px;overflow-y:auto;max-height:300px;padding:4px 0"></div>
+        <div style="display:flex;gap:10px;padding-top:4px;border-top:1px solid var(--border)">
+          <button class="btn btn-ghost" style="font-size:12px" onclick="addBlankMappingRow()">+ Other (type manually)</button>
+          <button class="btn btn-ghost" style="font-size:12px;margin-left:auto" onclick="closeValuePicker()">Cancel</button>
+        </div>
       </div>
     </div>
   </div>
@@ -13237,9 +13367,98 @@ function renderMappingRows(){
   _rebuildRowsDOM();
 }
 
+var _layerValuesCache={};  // column → [values]
+
+function fetchLayerColumns(){
+  var btn=document.getElementById('fetch-cols-btn');
+  var msg=document.getElementById('fetch-cols-msg');
+  if(btn){btn.disabled=true;btn.textContent='↻ Loading…';}
+  if(msg){msg.textContent='';msg.style.color='var(--text-dim)';}
+  fetch('/api/esri-tak-sync/layer-columns',{credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(btn){btn.disabled=false;btn.textContent='↻ Load';}
+      if(d.error){if(msg){msg.textContent='✗ '+d.error;msg.style.color='var(--red)';}return;}
+      var dl=document.getElementById('col-datalist');
+      if(dl){dl.innerHTML='';d.columns.forEach(function(c){var o=document.createElement('option');o.value=c;dl.appendChild(o);});}
+      if(msg){msg.textContent='✓ '+d.columns.length+' columns loaded — start typing to autocomplete';msg.style.color='var(--green)';}
+    }).catch(function(e){
+      if(btn){btn.disabled=false;btn.textContent='↻ Load';}
+      if(msg){msg.textContent='✗ Request failed';msg.style.color='var(--red)';}
+    });
+}
+
 function addMappingRow(){
+  var col=(document.getElementById('icon-column')||{}).value||'';
+  col=col.trim();
+  if(!col){
+    // No column set — fall back to blank row
+    addBlankMappingRow();
+    return;
+  }
+  var btn=document.getElementById('add-row-btn');
+  if(btn){btn.disabled=true;btn.textContent='Loading…';}
+  var cached=_layerValuesCache[col];
+  if(cached!==undefined){
+    if(btn){btn.disabled=false;btn.textContent='+ Add Row';}
+    _showValuePicker(col,cached);
+    return;
+  }
+  fetch('/api/esri-tak-sync/layer-values?column='+encodeURIComponent(col),{credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(btn){btn.disabled=false;btn.textContent='+ Add Row';}
+      if(d.error){alert('Could not load values: '+d.error);return;}
+      _layerValuesCache[col]=d.values||[];
+      _showValuePicker(col,_layerValuesCache[col]);
+    }).catch(function(){
+      if(btn){btn.disabled=false;btn.textContent='+ Add Row';}
+      alert('Failed to load column values. Check layer config.');
+    });
+}
+
+function _showValuePicker(col,values){
+  var modal=document.getElementById('value-picker-modal');
+  var label=document.getElementById('value-picker-col-label');
+  var loading=document.getElementById('value-picker-loading');
+  var chips=document.getElementById('value-picker-chips');
+  if(!modal)return;
+  if(label)label.textContent=col;
+  if(loading)loading.style.display='none';
+  if(chips){
+    // Filter out values already mapped
+    var mapped=_mappingRows.map(function(r){return r.col_value;});
+    var remaining=values.filter(function(v){return mapped.indexOf(v)===-1;});
+    if(remaining.length===0){
+      chips.innerHTML='<span style="font-size:13px;color:var(--text-dim)">All values in this column already have mappings.</span>';
+    } else {
+      chips.innerHTML='';
+      remaining.forEach(function(v){
+        var chip=document.createElement('button');
+        chip.className='btn btn-ghost';
+        chip.style.cssText='font-size:12px;padding:5px 12px;border-radius:20px';
+        chip.textContent=v;
+        chip.onclick=function(){
+          _mappingRows.push({col_value:v,iconsetpath:''});
+          _rebuildRowsDOM();
+          closeValuePicker();
+        };
+        chips.appendChild(chip);
+      });
+    }
+  }
+  modal.style.display='flex';
+}
+
+function closeValuePicker(){
+  var modal=document.getElementById('value-picker-modal');
+  if(modal)modal.style.display='none';
+}
+
+function addBlankMappingRow(){
   _mappingRows.push({col_value:'',iconsetpath:''});
   _rebuildRowsDOM();
+  closeValuePicker();
 }
 
 function _rebuildRowsDOM(){
@@ -13379,13 +13598,18 @@ function saveIconMapping(){
 {% if deploying %}
 _logPoll=setInterval(pollLog,1200);
 {% endif %}
-// Close picker on Escape key
+// Close modals on Escape
 document.addEventListener('keydown',function(e){
-  if(e.key==='Escape'){var m=document.getElementById('icon-picker-modal');if(m&&m.style.display!=='none')closePicker();}
+  if(e.key==='Escape'){
+    var ip=document.getElementById('icon-picker-modal');if(ip&&ip.style.display!=='none')closePicker();
+    var vp=document.getElementById('value-picker-modal');if(vp&&vp.style.display!=='none')closeValuePicker();
+  }
 });
-// Close picker when clicking the backdrop
+// Close modals when clicking backdrop
 var _pm=document.getElementById('icon-picker-modal');
 if(_pm)_pm.addEventListener('click',function(e){if(e.target===this)closePicker();});
+var _vpm=document.getElementById('value-picker-modal');
+if(_vpm)_vpm.addEventListener('click',function(e){if(e.target===this)closeValuePicker();});
 </script>
 </body></html>'''
 
