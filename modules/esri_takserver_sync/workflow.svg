@@ -135,7 +135,7 @@ TAK Server validates the cert against its trusted CA list.
 
 Generate cert:
   cd /opt/tak/certs
-  sudo bash makeCert.sh client esri-push
+  ./makeCert.sh Client esri-push
   sudo java -jar /opt/tak/utils/UserManager.jar certmod -A /opt/tak/certs/files/esri-push.p12
 
 Extract PEM sidecars (note the -legacy flag for RC2 encryption):

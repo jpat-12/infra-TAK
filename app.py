@@ -11836,16 +11836,22 @@ def _run_esri_tak_sync_cert_setup(mode, password, cert_name):
             # ── Step 1: makeCert.sh ───────────────────────────────────────────
             plog('━━━ Step 1/3: Generating cert with makeCert.sh ━━━')
             certs_tak_dir = os.path.join(tak_dir, 'certs')
-            r = subprocess.run(
-                ['bash', 'makeCert.sh', 'client', cert_name],
-                capture_output=True, text=True, timeout=120, cwd=certs_tak_dir)
+            # Capital 'Client' is required by makeCert.sh; pipe 'y' to answer any prompts
+            cmd = f'echo "y" | ./makeCert.sh Client {cert_name}'
+            plog(f'  Running: {cmd}')
+            r = subprocess.run(cmd, shell=True, capture_output=True, text=True,
+                               timeout=120, cwd=certs_tak_dir)
+            output = (r.stdout or '') + (r.stderr or '')
+            for line in output.strip().splitlines():
+                if line.strip():
+                    plog(f'  {line}')
             if r.returncode != 0:
                 plog(f'  ✗ makeCert.sh failed (exit {r.returncode})')
-                plog(f'  {(r.stderr or r.stdout or "")[:400]}')
                 status.update({'running': False, 'error': True}); return
             p12_src = os.path.join(certs_tak_dir, 'files', f'{cert_name}.p12')
             if not os.path.exists(p12_src):
                 plog(f'  ✗ Expected p12 not found at {p12_src}')
+                plog(f'  Check that makeCert.sh completed without errors above')
                 status.update({'running': False, 'error': True}); return
             plog(f'  ✓ {p12_src}')
 
