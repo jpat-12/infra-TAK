@@ -552,6 +552,7 @@ def main():
         try:
             features = layer.fetch_all()
             sent = 0
+            sample_cot = None
             tak.connect()
             try:
                 for feat in features:
@@ -562,10 +563,14 @@ def main():
                         cot = build_cot(feat, fm, cot_cfg, icon_cfg)
                         tak.send(cot)
                         sent += 1
+                        if sample_cot is None:
+                            sample_cot = cot
             finally:
                 tak.close()
             delta.commit()
             log.info("Poll complete — sent %d / %d records", sent, len(features))
+            if sample_cot:
+                log.info("Sample CoT:\n%s", sample_cot)
 
         except RuntimeError as exc:
             log.error("%s", exc)
