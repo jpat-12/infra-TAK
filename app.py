@@ -11916,6 +11916,12 @@ def _run_esri_tak_sync_cert_setup(mode, password, cert_name):
         plog(f'  cert : {cert_pem}')
         plog(f'  key  : {key_pem}')
         plog('  Config updated. Restart the service to use the new cert.')
+        plog('')
+        plog('⚠ ACTION REQUIRED — Group enrollment:')
+        plog('  The esri-push user must be in the same TAK group as your clients.')
+        plog('  In TAK Server Admin UI → User Management → find esri-push → assign to group')
+        plog('  (e.g. __ANON__ for unauthenticated clients, or your named group).')
+        plog('  Without this, TAK Server accepts the CoT but will NOT fan it out to clients.')
         status.update({'running': False, 'complete': True, 'error': False})
 
     except Exception as e:

@@ -311,8 +311,9 @@ def build_cot(feature: dict, fm: dict, cot_cfg: dict, icon_cfg: dict | None = No
         if iconsetpath:
             usericon_xml = f'<usericon iconsetpath={_xml_quoteattr(iconsetpath)} />'
 
+    # No XML declaration — TAK Server's streaming TCP parser reads multiple
+    # <event> elements per connection; a repeated <?xml?> mid-stream breaks it.
     return (
-        f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         f'<event version="2.0"'
         f' uid={_xml_quoteattr(uid)}'
         f' type={_xml_quoteattr(cot_type)}'
