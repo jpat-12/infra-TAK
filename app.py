@@ -24597,6 +24597,41 @@ def run_full_uninstall():
         caddy_deploy_status.update({'running': False, 'complete': False, 'error': False})
         plog("✓ Caddy removed")
 
+        # 9. FeatureLayer → CoT
+        plog("━━━ FeatureLayer → CoT ━━━")
+        subprocess.run('systemctl stop feature-layer-to-cot 2>/dev/null; true', shell=True, capture_output=True, timeout=15)
+        subprocess.run('systemctl disable feature-layer-to-cot 2>/dev/null; true', shell=True, capture_output=True)
+        for f in ['/etc/systemd/system/feature-layer-to-cot.service',
+                  '/var/log/esri-takserver-sync-feature-layer-to-cot.log']:
+            if os.path.exists(f):
+                try:
+                    os.remove(f)
+                except Exception:
+                    pass
+        if os.path.exists('/opt/Esri-TAKServer-Sync'):
+            subprocess.run('rm -rf /opt/Esri-TAKServer-Sync', shell=True, capture_output=True, timeout=15)
+        subprocess.run('systemctl daemon-reload 2>/dev/null; true', shell=True, capture_output=True)
+        _esri_tak_sync_install_log.clear()
+        _esri_tak_sync_install_status.update({'running': False, 'complete': False, 'error': False})
+        plog("✓ FeatureLayer → CoT removed")
+
+        # 10. CoT → FeatureLayer
+        plog("━━━ CoT → FeatureLayer ━━━")
+        subprocess.run('systemctl stop cot-featurelayer 2>/dev/null; true', shell=True, capture_output=True, timeout=15)
+        subprocess.run('systemctl disable cot-featurelayer 2>/dev/null; true', shell=True, capture_output=True)
+        for f in ['/etc/systemd/system/cot-featurelayer.service']:
+            if os.path.exists(f):
+                try:
+                    os.remove(f)
+                except Exception:
+                    pass
+        if os.path.exists('/opt/CoT-FeatureLayer'):
+            subprocess.run('rm -rf /opt/CoT-FeatureLayer', shell=True, capture_output=True, timeout=15)
+        subprocess.run('systemctl daemon-reload 2>/dev/null; true', shell=True, capture_output=True)
+        _cot_fl_install_log.clear()
+        _cot_fl_install_status.update({'running': False, 'complete': False, 'error': False})
+        plog("✓ CoT → FeatureLayer removed")
+
         plog("")
         plog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         plog("All deployed services removed. Console remains. Use Marketplace to deploy again.")
@@ -24801,7 +24836,7 @@ body{display:flex;flex-direction:row;min-height:100vh}
 <div class="help-card">
 <div class="help-card-header" onclick="helpToggle(this)"><h2>Deployment order</h2><span class="help-card-toggle">&#9662;</span></div>
 <div class="help-card-body">
-<p>(1) Caddy — set FQDN and TLS · (2) Authentik · (3) Email Relay · (4) TAK Server — upload .deb/.rpm and deploy · (5) Connect TAK Server to LDAP (button on TAK Server page) · (6) TAK Portal · (7) Node-RED, MediaMTX, CloudTAK, Guard Dog as needed.</p>
+<p>(1) Caddy — set FQDN and TLS · (2) Authentik · (3) Email Relay · (4) TAK Server — upload .deb/.rpm and deploy · (5) Connect TAK Server to LDAP (button on TAK Server page) · (6) TAK Portal · (7) Node-RED, MediaMTX, CloudTAK, Guard Dog as needed · (8) Marketplace modules — FeatureLayer → CoT, CoT → FeatureLayer (require TAK Server to be running first).</p>
 </div></div>
 <div class="help-card">
 <div class="help-card-header" onclick="helpToggle(this)"><h2>Backdoor (IP:5001)</h2><span class="help-card-toggle">&#9662;</span></div>
@@ -24838,13 +24873,13 @@ body{display:flex;flex-direction:row;min-height:100vh}
 <div class="help-card">
 <div class="help-card-header" onclick="helpToggle(this)"><h2>Uninstall all services</h2><span class="help-card-toggle">&#9662;</span></div>
 <div class="help-card-body">
-<p>Remove all deployed services (TAK Server, Authentik, Caddy, TAK Portal, MediaMTX, Node-RED, CloudTAK, Email Relay). The console stays so you can redeploy from Marketplace without burning the VPS.</p>
+<p>Remove all deployed services (TAK Server, Authentik, Caddy, TAK Portal, MediaMTX, Node-RED, CloudTAK, Email Relay, FeatureLayer → CoT, CoT → FeatureLayer). The console stays so you can redeploy from Marketplace without burning the VPS.</p>
 <button type="button" onclick="document.getElementById('full-uninstall-modal').classList.add('open');setTimeout(function(){fullUninstallCheckFields();var p=document.getElementById('full-uninstall-password');if(p&&p.value.trim())fullUninstallValidatePassword();},50)" style="padding:8px 16px;background:rgba(239,68,68,0.15);color:var(--red);border:1px solid rgba(239,68,68,0.4);border-radius:8px;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;cursor:pointer">Uninstall all services</button>
 </div></div>
 <div id="full-uninstall-modal" class="modal-overlay" style="z-index:9999;padding:24px">
 <div class="modal" style="max-width:480px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column">
 <div style="font-weight:600;margin-bottom:16px">Uninstall all deployed services</div>
-<p style="font-size:12px;color:var(--text-dim);margin-bottom:16px">This will remove TAK Server, Authentik, Caddy, TAK Portal, MediaMTX, Node-RED, CloudTAK, and Email Relay. The console and your password remain. You can redeploy from Marketplace afterward.</p>
+<p style="font-size:12px;color:var(--text-dim);margin-bottom:16px">This will remove TAK Server, Authentik, Caddy, TAK Portal, MediaMTX, Node-RED, CloudTAK, Email Relay, FeatureLayer → CoT, and CoT → FeatureLayer. The console and your password remain. You can redeploy from Marketplace afterward.</p>
 <div style="margin-bottom:12px"><label class="form-label" style="display:block;margin-bottom:4px;font-size:12px">Admin password</label><div style="position:relative;display:flex;align-items:center;gap:8px"><input class="form-input" id="full-uninstall-password" type="password" placeholder="Your console password" style="flex:1" oninput="fullUninstallPasswordInput()" onblur="fullUninstallValidatePassword()"><span id="full-uninstall-pw-check" style="display:none;color:var(--green);font-size:18px;flex-shrink:0" title="Password correct">&#10003;</span></div></div>
 <div style="margin-bottom:12px"><label class="form-label" style="display:block;margin-bottom:4px;font-size:12px">Type <strong>UNINSTALL</strong> to confirm</label><div style="position:relative;display:flex;align-items:center;gap:8px"><input class="form-input" id="full-uninstall-confirm" type="text" placeholder="UNINSTALL" autocomplete="off" style="flex:1" oninput="fullUninstallCheckFields()"><span id="full-uninstall-confirm-check" style="display:none;color:var(--green);font-size:18px;flex-shrink:0" title="UNINSTALL typed correctly">&#10003;</span></div></div>
 <div id="full-uninstall-msg" style="margin-bottom:8px;font-size:12px;color:var(--red);min-height:18px"></div>
