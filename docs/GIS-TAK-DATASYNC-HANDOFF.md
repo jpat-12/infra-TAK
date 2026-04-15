@@ -163,15 +163,17 @@ Full-featured 5-step wizard:
 5. **Export** — TTL hours, CoT type prefix, UID prefix, mission name, named save with card management
 
 **Backend API endpoints** (all in `nodered/build-flows.js`):
-- `POST /api/arcgis/service` — proxy to ArcGIS service metadata
-- `POST /api/arcgis/layer` — proxy to ArcGIS layer metadata
-- `POST /api/arcgis/sample` — proxy to ArcGIS sample features
-- `POST /api/arcgis/distinct` — proxy to ArcGIS distinct values query
-- `POST /api/config/save` — save single config to flow context
-- `POST /api/config/save-all` — save all configs at once
-- `GET /api/config/load` — load all saved configs
-- `POST /api/tak-settings/save` — save TAK server connection settings
-- `GET /api/tak-settings/load` — load TAK server connection settings
+- `POST /arcgis-tak/arcgis/service` — proxy to ArcGIS service metadata
+- `POST /arcgis-tak/arcgis/layer` — proxy to ArcGIS layer metadata
+- `POST /arcgis-tak/arcgis/sample` — proxy to ArcGIS sample features
+- `POST /arcgis-tak/arcgis/distinct` — proxy to ArcGIS distinct values query
+- `POST /arcgis-tak/config/save` — save single config to flow context
+- `POST /arcgis-tak/config/save-all` — save all configs at once
+- `GET /arcgis-tak/config/load` — load all saved configs
+- `POST /arcgis-tak/tak-settings/save` — save TAK server connection settings
+- `GET /arcgis-tak/tak-settings/load` — load TAK server connection settings
+
+**Note:** Paths use `/arcgis-tak/...` (not `/api/...`) because Node-RED’s admin API registers `/api/*` first; `/api/config/load` was intercepted and the Configurator appeared empty.
 
 ### Slice 2: Engine flow ✅ (fully wired, reconciliation + streaming working)
 
