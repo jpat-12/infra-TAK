@@ -284,6 +284,39 @@ Create a single TAK group (e.g. `DATASYNC-FEEDS`) that acts as the global channe
 
 **Why this section exists:** Cursor (and similar) may **not** reload the full chat transcript into the assistant on every turn. **Treat this file as the source of truth** for Node-RED / GIS–DataSync decisions. When you agree on a plan in chat, **append a short bullet here** so the next session does not depend on chat memory.
 
+### 2026-04-15 — TLS cert property fix + switch to admin cert
+
+#### Node-RED TLS config: `cert`/`key` vs `certname`/`keyname`
+
+**Hard-won lesson:** In Node-RED's `tls-config` node, the properties are **not** what you'd expect:
+
+- **`cert`**, **`key`**, **`ca`** = **local file paths** (e.g. `/certs/admin.pem`). When these have values, the **"Use key and certificates from local files"** checkbox auto-checks.
+- **`certname`**, **`keyname`**, **`caname`** = **uploaded file display names** (label shown next to the Upload button). These are NOT file paths.
+- **`passphrase`** = credential field, stored encrypted in `flows_cred.json`. Must be re-entered after wiping credentials.
+
+Putting paths in `certname`/`keyname` causes the checkbox to stay unchecked and shows paths as "uploaded filenames" with no actual cert data — TLS silently fails.
+
+#### Switched from `nodered-global-airdata` to `admin` cert
+
+TAK Server's `StreamingEndpointRewriteFilter` checks if the **TCP streaming client's cert CN** matches a user subscribed to the mission referenced in `<marti><dest mission="..."/>`. The old cert (`CN=nodered-global-airdata`) was not subscribed to the missions, causing:
+
+```
+ERROR StreamingEndpointRewriteFilter - unable to find mission subscription
+  for client CA AIR INTEL, CN=nodered-global-airdata,...
+```
+
+Fix: use `admin` cert (`CN=admin`) for both TCP streaming (8089) and Mission API (8443). Admin is already subscribed to both missions. Cert paths in `build-flows.js`:
+
+```javascript
+cert: '/certs/admin.pem', key: '/certs/admin.key'
+```
+
+User must enter passphrase (`atakatak`) once in the Node-RED TLS config UI after first deploy.
+
+#### `flows_cred.json` gotcha
+
+Deploying via the Node-RED admin API (`POST /flows`) or `docker cp flows.json` does **not** update `flows_cred.json`. If credentials are wiped (e.g. `echo '{}' > flows_cred.json`), the passphrase is lost and must be re-entered. The `deploy.sh` script backs up and restores this file to prevent data loss.
+
 ### 2026-04-12 — New global integration user + DataSync PUT 403 / group direction investigation
 
 #### New integration user: `nodered-global-datasyncfeed`
