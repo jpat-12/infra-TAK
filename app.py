@@ -12326,6 +12326,7 @@ def esri_tak_sync_icons_save_mapping():
 @login_required
 def esri_tak_sync_layer_columns():
     """Return field names from the configured Feature Layer (hits the layer metadata endpoint)."""
+    import requests
     try:
         cfg = _esri_tak_sync_load_config()
         url = cfg.get('layer_url', '').rstrip('/')
@@ -12371,6 +12372,7 @@ def esri_tak_sync_layer_columns():
 @login_required
 def esri_tak_sync_layer_values():
     """Return distinct values for a column in the configured Feature Layer."""
+    import requests
     column = request.args.get('column', '').strip()
     if not column:
         return jsonify({'error': 'column parameter required'}), 400
