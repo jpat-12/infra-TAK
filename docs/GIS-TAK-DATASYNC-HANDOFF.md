@@ -436,11 +436,76 @@ After first deploy on a fresh server, also enter passphrase `atakatak` in Node-R
 2. Double-click any TCP Out node → click the pencil icon on TLS config
 3. Enter passphrase → Update → Deploy
 
-#### Open questions for next session
+#### Dedup by field (added 2026-04-15 late night)
 
-1. **Can mission `defaultRole` be changed to `MISSION_READONLY_SUBSCRIBER` after admin is subscribed as SUBSCRIBER?** If the subscription role overrides the default, field users would get read-only while admin retains write. Need to test.
-2. **`StreamingEndpointRewriteFilter` error** — is there a way to suppress it, or does fixing the subscription via PUT /subscription resolve it? Currently cosmetic but clutters the log.
-3. **Non-admin integration user** — if we ever switch from admin to a dedicated user (e.g. `nodered-global-airdata`), that user needs: (a) IN direction on the mission's group, (b) explicit subscription to the mission, (c) cert CN matching the `creatorUid` in the Configurator.
+Solves the "same fire flown multiple times" problem. ArcGIS returns multiple features with the same mission name (e.g. `CA-BDU-BOURBON-N50X`) but different creation dates — one per flight. Without dedup, all perimeters appear on the map.
+
+**Configurator**: Step 3 → "Deduplicate by" dropdown. Set to the grouping field (e.g. `mission` for fire perimeters).
+
+**Engine logic** (in `FN_PARSE_COT`): when `dedupField` and `timeField` are both set, features are grouped by `dedupField` value. For each group, only the feature with the highest (newest) `timeField` value is kept. Older duplicates are discarded before CoT is built. Reconciliation then DELETEs any UIDs from old duplicates that were previously in the mission.
+
+```javascript
+if (dedupField && timeField) {
+  var groups = {};
+  for (var di = 0; di < features.length; di++) {
+    var da = features[di].attributes || {};
+    var key = String(da[dedupField] || '');
+    if (!groups[key] || (Number(da[timeField] || 0) > Number((groups[key].attributes || {})[timeField] || 0))) {
+      groups[key] = features[di];
+    }
+  }
+  features = Object.keys(groups).map(function(k) { return groups[k]; });
+}
+```
+
+Debug log shows: `CA AIR INTEL: dedup by mission: 15 → 10 features`
+
+**Important**: requires both `dedupField` AND `timeField` to be set. If either is empty, all features pass through (no dedup).
+
+#### PUT delay increased to 30 seconds
+
+Changed from 5s to 30s. With large feeds (55+ polygon CoTs, many over 10KB), 5 seconds wasn't enough for all CoTs to stream via TCP and get cached in `CotCacheHelper` before the PUT fired — resulting in 500 errors. The system self-heals on next poll, but 30s prevents the 500 entirely. No downside — data is polled every 5 minutes, so an extra 25 seconds is negligible.
+
+#### Deployment one-liner (git pull → deploy with TLS passphrase)
+
+Proven working — run on the server:
+```bash
+cd /root/infra-TAK && git pull && docker cp nodered/flows.json nodered:/data/flows.json && docker exec nodered node -e "
+var http = require('http');
+var fs = require('fs');
+var flows = JSON.parse(fs.readFileSync('/data/flows.json','utf8'));
+var tls = flows.find(function(n){ return n.id === 'tls_tak'; });
+if (tls) { tls.credentials = { passphrase: 'atakatak' }; }
+var body = JSON.stringify(flows);
+var req = http.request({
+  hostname:'127.0.0.1', port:1880, path:'/flows',
+  method:'POST', headers:{'Content-Type':'application/json','Node-RED-Deployment-Type':'full','Content-Length':Buffer.byteLength(body)}
+}, function(res){ var d=''; res.on('data',function(c){d+=c}); res.on('end',function(){console.log(res.statusCode,d)}); });
+req.write(body); req.end();
+"
+```
+Expect `204` on success. After deploying new flow code, Configurator settings (saved in global context) persist — no need to reconfigure feeds. Only the TLS passphrase needs to be injected (handled by the deploy command above).
+
+#### Tomorrow's priority: read-only missions
+
+**Goal**: field users get `MISSION_READONLY_SUBSCRIBER` (can see data, can't edit) while admin retains write access to PUT/DELETE UIDs.
+
+**Test plan**:
+1. Confirm current state works with `defaultRole: MISSION_SUBSCRIBER`
+2. Change `defaultRole` to `MISSION_READONLY_SUBSCRIBER` on one mission (e.g. CA AIR INTEL) via TAK Server GUI
+3. Check if admin's existing SUBSCRIBER subscription overrides the new default — does admin's PUT still return 200?
+4. If yes: done — new subscribers get read-only, admin keeps write
+5. If no: investigate `PUT /missions/{name}/subscription?uid=admin` with explicit role parameter, or whether `ROLE_ADMIN` cert bypasses role checks entirely
+6. Also test: create a brand new mission with `defaultRole: MISSION_READONLY_SUBSCRIBER` from the start, subscribe admin, and see if writes work
+
+**What we know so far**: `MISSION_READONLY_SUBSCRIBER` as default role previously blocked ALL writes (returns 200 but UIDs don't stick). But that was before we used the `admin` cert which has `ROLE_ADMIN`. Admin may bypass mission role checks entirely — needs testing.
+
+#### Open questions
+
+1. **Read-only default role + admin write** — see test plan above
+2. **`StreamingEndpointRewriteFilter` error** — cosmetic, not blocking data flow. May resolve if admin subscription propagates to streaming layer. Low priority.
+3. **Ghost mission package files on ATAK** — server shows 0 contents but ATAK still displays old files from Enterprise Sync era. Unsubscribe/resubscribe didn't clear them. May need to clear ATAK's local file cache manually (`/sdcard/atak/tools/datapackage/` or similar).
+4. **Non-admin integration user** — if we ever switch from admin to a dedicated user, that user needs: (a) IN direction on the mission's group, (b) explicit subscription to the mission, (c) cert CN matching the `creatorUid` in the Configurator.
 
 ### 2026-04-12 — New global integration user + DataSync PUT 403 / group direction investigation
 
