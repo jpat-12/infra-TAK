@@ -52,7 +52,7 @@ Stable **UID** must be **deterministic** (e.g. `prefix + feature id` or hash of 
 | [node-red-contrib-tak](https://github.com/snstac/node-red-contrib-tak) | CoT encode/decode, TAK protocol, TCP/mesh patterns. Engine outputs CoT JSON in the `_attributes` format this node expects. |
 | [node-red-contrib-tfr2cot](https://flows.nodered.org/node/node-red-contrib-tfr2cot) | Reference for **DataSync** patterns: `dataSyncSubscription`, pairing **HTTP request** (method from msg) with Mission API. Greg Albrecht's blog post on RIIS covers the wiring in detail. |
 | Paul's DataSync flow (user's prior work) | Pattern for DataSync PUT/DELETE with Mission API — used as the basis for the engine's reconciliation approach. Key insight: `PUT /Marti/api/missions/{name}/contents?creatorUid={uid}` with `{uids: [uid]}` payload to add, `DELETE /Marti/api/missions/{name}/contents?uid={uid}&creatorUid={uid}` to remove. |
-| TAK Mission / DataSync API | Add/remove persisted mission content. Ports: **8443** for Mission API (HTTPS with client cert), **8089** for streaming TCP CoT. Exact paths depend on TAK Server version and `CoreConfig.xml`. |
+| TAK Mission / DataSync API | Add/remove persisted mission content. Ports: **8443** for Mission API (HTTPS with client cert), **8089** for streaming TCP CoT. Tested on TAK Server **5.7**. Exact paths depend on TAK Server version and `CoreConfig.xml`. |
 
 **Note:** `tfr2cot` docs explicitly call out that **saving to DataSync** does not auto-remove stale items — aligns with building **explicit DELETE** or reconciliation in infra-TAK.
 
@@ -177,16 +177,18 @@ Full-featured 5-step wizard:
 
 **Flow tab:** "ArcGIS → TAK" (shared tab with configurator for flow context)
 
-**Active path (working as of 2026-04-11):**
+**Active path (working as of 2026-04-15 — Map Items, no broadcast, correct names):**
 ```
-eng_sa_inject → eng_sa_build → eng_cot_to_xml → eng_tcp_out  (SA ident on startup)
-eng_inject → eng_load → eng_build_q → eng_http_ag → eng_parse
-  ├→ eng_build_sub → eng_http_sub (subscribe to mission)
-  └→ eng_build_m → eng_http_m → eng_reconcile
-       ├→ Port 0: ALL features streamed (eng_cot_to_xml → eng_tcp_out)
-       │          + eng_delay_put → eng_build_put → eng_http_action (PUT new only)
-       └→ Port 1: Stale UIDs (eng_delay_del → eng_http_action DELETE)
+{feed}_sa_inject → {feed}_sa_build → {feed}_cot_to_xml → {feed}_tcp_out  (SA ident on startup)
+{feed}_inject → {feed}_load → {feed}_build_q → {feed}_http_ag → {feed}_parse
+  ├→ {feed}_build_sub → {feed}_http_sub (subscribe to mission)
+  └→ {feed}_build_m → {feed}_http_m → {feed}_reconcile
+       ├→ Port 0: ALL features streamed with <marti><dest mission="..."/> tag
+       │          ({feed}_cot_to_xml → {feed}_rate_stream → {feed}_tcp_out)
+       │          + {feed}_delay_put → {feed}_build_put → {feed}_http_action (PUT new UIDs only)
+       └→ Port 1: Stale UIDs ({feed}_delay_del → {feed}_http_action DELETE)
 ```
+Each feed (CA AIR INTEL, POWER-OUTAGES) gets its own engine tab with all nodes prefixed by `{feed_id}_` (e.g. `air_intel_`, `pwr_outages_`). TLS config (`tls_tak`) is shared globally.
 
 **Node inventory:**
 - **`eng_sa_inject`** — fires 10s after deploy, repeats every 10 min; sends SA identification CoT
@@ -220,22 +222,25 @@ eng_inject → eng_load → eng_build_q → eng_http_ag → eng_parse
 | **Config storage** | Node-RED **flow context** with `localfilesystem` persistence (survives container restarts). Configured via `settings.js` `contextStorage`. |
 | **UID scheme** | `arcgis-{value_of_id_field}` — deterministic, stable across polls. |
 | **Auth: ArcGIS** | Public services for now (no token). Token auth is a future enhancement. |
-| **Auth: TAK certs** | Placeholder `tls-config` node in engine; user uploads client cert/key/CA in Node-RED editor. TAK Portal "Create Integration" generates these. |
+| **Auth: TAK certs** | `tls_tak` node uses `admin.pem`/`admin.key` from `/certs/` mount (local file paths in `cert`/`key` properties). Passphrase entered once in UI, stored encrypted in `flows_cred.json`. Admin cert bypasses group direction issues. |
 | **Scale / batching** | Split node processes configs one at a time. No explicit batching of features yet — adequate for hundreds of features per poll. |
 | **Color format** | Hex → ARGB integer conversion in `eng_parse`. Alpha channel derived from fill opacity percentage. |
 
 ## Open items / future work
 
-- ~~**Mount TLS certs into Node-RED container**~~: ✅ Done. Volume mount `/opt/tak/certs/files:/certs:ro` in `docker-compose.yml`. TLS config uses `/certs/nodered-global-airdata.pem` and `.key`.
-- ~~**End-to-end testing**~~: ✅ Done. Full loop verified 2026-04-11 against live ArcGIS + TAK Server 5.5.
-- ~~**PST timestamp formatting**~~: ✅ Done. `fmtVal()` helper in `eng_parse` converts epoch > 1e12 to `MM/DD/YYYY H:MM AM PST` and rounds decimals.
+- ~~**Mount TLS certs into Node-RED container**~~: ✅ Done. Volume mount `/opt/tak/certs/files:/certs:ro` in `docker-compose.yml`. TLS config uses `/certs/admin.pem` and `.key`.
+- ~~**End-to-end testing**~~: ✅ Done. Full loop verified 2026-04-15 against live ArcGIS + TAK Server 5.7. Map Items, no broadcast, correct names.
+- ~~**PST timestamp formatting**~~: ✅ Done. `fmtVal()` helper in `eng_parse` converts epoch > 1e12 to `MM/DD/YYYY H:MM PST` and rounds decimals.
+- ~~**Persist tcp out host/port in build-flows.js**~~: ✅ Done. Hardcoded `host.docker.internal:8089` in `makeEngineTab()`.
+- ~~**No-broadcast routing**~~: ✅ Done. `<marti><dest mission="..."/>` tag inside `<detail>` prevents map-wide broadcast. Confirmed on second ATAK device.
+- ~~**Multi-feed support**~~: ✅ Done. `FEEDS` array in `build-flows.js` generates one engine tab per feed. Currently `CA AIR INTEL` and `POWER-OUTAGES`.
+- **Test `MISSION_READONLY_SUBSCRIBER` as `defaultRole`**: Currently must be `MISSION_SUBSCRIBER` for writes. Test whether changing to READONLY after admin is subscribed as SUBSCRIBER still allows admin to write (subscription role may override default).
 - **Multi-polygon support**: `eng_parse` currently only processes `g.rings[0]`. Iterate all rings, emit separate CoT per ring with UID `<prefix>-<id>-<ringIndex>`.
 - **Update detection**: Currently re-streams all CoT every poll (keeps TAK cache fresh). Could compare a hash of geometry/attributes to skip unchanged features for efficiency.
 - **ArcGIS token auth**: Add optional token field to configurator for secured services.
 - **Multiple geometry support per config**: Currently one geometry type per config. Could detect mixed layers.
 - **Error handling / retry**: Engine has basic `node.warn` logging but no retry logic for failed HTTP requests.
-- **Persist tcp out host/port in build-flows.js**: Currently blank in generated flows — user must re-enter `host.docker.internal:8089` after every deploy. Could read from TAK settings or hardcode.
-- **Automate deploy steps**: The `docker cp` + restart + reconfigure TLS + re-save configurator cycle is tedious. See `docs/NODERED-DEPLOY.md` for the current manual cheat sheet.
+- **Automate deploy steps**: Deploy command with passphrase injection works (see Maintainer log 2026-04-15). Could wrap in a `deploy.sh` script.
 
 ## Global DataSync Feed Architecture
 
@@ -243,9 +248,9 @@ eng_inject → eng_load → eng_build_q → eng_http_ag → eng_parse
 
 | Role | Permissions | Who gets it |
 |------|-------------|-------------|
-| **Owner** | Full control — can delete the mission itself | Admin only (via TAK Server GUI) |
-| **Subscriber** | Read + write mission content (PUT/DELETE UIDs) | Integration users (e.g. `nodered-global-airdata`) |
-| **Read-only** | See and receive data, cannot modify | All agency/field users |
+| **Owner** | Full control — can delete the mission itself | Admin only (via TAK Server GUI / TAK Portal) |
+| **Subscriber** | Read + write mission content (PUT/DELETE UIDs) | Integration cert (`admin` for now). Mission `defaultRole` must be set to this. |
+| **Read-only** | See and receive data, cannot modify | All agency/field users (goal — need to test changing `defaultRole` after admin is subscribed) |
 
 ### Global feed distribution pattern
 
@@ -284,7 +289,92 @@ Create a single TAK group (e.g. `DATASYNC-FEEDS`) that acts as the global channe
 
 **Why this section exists:** Cursor (and similar) may **not** reload the full chat transcript into the assistant on every turn. **Treat this file as the source of truth** for Node-RED / GIS–DataSync decisions. When you agree on a plan in chat, **append a short bullet here** so the next session does not depend on chat memory.
 
-### 2026-04-15 — TLS cert property fix + switch to admin cert
+### 2026-04-15 — EVERYTHING WORKING: Map Items + No Broadcast + Correct Names
+
+This is the definitive "known-good" state. If something breaks, **restore to this**.
+
+#### What is confirmed working
+
+1. **ArcGIS data flows as Map Items** (not Files) in both `CA AIR INTEL` and `POWER-OUTAGES` missions
+2. **No broadcast** — data goes ONLY to the DataSync mission. Verified on a second ATAK device: unsubscribed from mission → no data appears. Subscribed → data appears.
+3. **Human-readable names** — callsigns show the actual feature label (e.g. `CA-BDU-BOURBON-N50X`, `PGE Outage - 1234`) instead of raw UIDs. These show up in the DataSync mission panel and on the map.
+4. **Two-feed architecture** — separate engine tabs for `CA AIR INTEL` and `POWER-OUTAGES`, each with independent poll timers, ArcGIS queries, and reconciliation.
+5. **Reconciliation working** — new features added, stale features deleted, existing features re-streamed to keep cache fresh.
+6. **TLS connected** — admin cert (CN=admin) used for both TCP streaming (8089) and Mission API (8443).
+
+#### Architecture that works (do NOT change without testing)
+
+```
+ArcGIS Feature Service
+    ↓ HTTP GET (every 5 min)
+Node-RED: Parse → CoT JSON (with callsign from labelField)
+    ↓
+CoT JSON → Custom XML serializer (FN_COT_TO_XML)
+    ↓ includes <marti><dest mission="MISSION_NAME"/></marti> inside <detail>
+TCP stream → TAK Server :8089 (TLS via admin.pem)
+    ↓ 5-second delay for CotCacheHelper
+PUT /Marti/api/missions/{name}/contents (HTTPS :8443, TLS via admin.pem)
+    → registers UIDs as Map Items in the mission
+```
+
+**Key mechanism**: TCP streaming populates TAK Server's `CotCacheHelper` with the CoT data. The `PUT /contents` with `{"uids":[...]}` then links those cached UIDs to the mission. This is what makes them appear as **Map Items** (not Files). The `<marti><dest mission="..."/>` tag in the CoT XML prevents the data from broadcasting to all connected clients — it targets only the named mission.
+
+**What makes Enterprise Sync different (and why we don't use it)**: `POST /Marti/sync/missionupload` puts data into the mission's `contents` array, which renders as **Files** in ATAK. Map Items come from the `uids` array, which is only populated via TCP streaming + PUT UIDs. This was the critical insight that took days to discover.
+
+#### Mission setup requirements
+
+| Setting | Value | Why |
+|---------|-------|-----|
+| `defaultRole` | `MISSION_SUBSCRIBER` | Required for PUT/DELETE to work. `MISSION_READONLY_SUBSCRIBER` silently blocks writes (returns 200 but UIDs don't stick). **TODO: test changing to READONLY after integration user is subscribed as SUBSCRIBER — may work if subscription role overrides default.** |
+| Integration cert | `admin` (`CN=admin`) | Admin has `ROLE_ADMIN`, bypasses x509 group direction issues. Any cert can work IF it has IN direction on the mission's group AND is subscribed to the mission. |
+| Cert paths in `build-flows.js` | `cert: '/certs/admin.pem', key: '/certs/admin.key'` | These go in the `tls_tak` node's `cert`/`key` properties (NOT `certname`/`keyname` — see TLS lesson below). |
+| Passphrase | `atakatak` | Must be entered once in Node-RED TLS config UI after first deploy. Stored encrypted in `flows_cred.json`. |
+| `creatorUid` | Must match cert CN (e.g. `admin`) | Set in the Configurator UI. Used in Mission API URLs. |
+
+#### Does admin need to be subscribed to the mission?
+
+**Unclear but probably yes for clean operation.** The TAK Server log shows:
+
+```
+ERROR StreamingEndpointRewriteFilter - unable to find mission subscription
+  for client CA AIR INTEL, CN=admin
+```
+
+Despite this error, **data still flows as Map Items**. This is because:
+- The `StreamingEndpointRewriteFilter` only affects real-time streaming delivery to mission subscribers via TCP
+- The PUT UIDs API call works independently — it registers UIDs in the mission's `uids` array regardless of the streaming filter
+- ATAK clients pick up the UIDs when they sync the mission
+
+The Node-RED flow auto-subscribes via `PUT /missions/{name}/subscription?uid=admin` on first poll. The TAK Server may still log the error if the subscription hasn't propagated to the streaming layer. **This is cosmetic — not blocking data flow.**
+
+#### What makes the names show correctly
+
+The `callsign` field in the CoT determines what name appears in DataSync and on the map. In `FN_PARSE_COT` (`build-flows.js`):
+
+```javascript
+var callsign = uid;  // fallback to UID
+if (cfg.style.labelField && a[cfg.style.labelField] != null)
+  callsign = String(a[cfg.style.labelField]);
+```
+
+The user sets `labelField` in the Configurator UI (Step 4 — "Label field"). This maps to an ArcGIS attribute like `mission` (for fire perimeters) or `outage_name` (for power outages). The callsign then appears as `<contact callsign="CA-BDU-BOURBON-N50X"/>` in the CoT XML.
+
+#### `<marti><dest>` tag — placement and casing matter
+
+The tag that prevents broadcast and routes to the mission MUST be:
+- **Lowercase** `<marti>` (not `<Marti>`)
+- **Inside** `<detail>`, before `</detail></event>`
+- Mission name must match exactly (case-sensitive, spaces included)
+
+In `FN_COT_TO_XML`:
+```javascript
+if (msg._missionName) {
+  xml += '<marti><dest mission="' + msg._missionName + '"/></marti>';
+}
+xml += '</detail></event>\n';
+```
+
+Without this tag, CoT broadcasts to ALL connected clients map-wide. With it, only mission subscribers see the data.
 
 #### Node-RED TLS config: `cert`/`key` vs `certname`/`keyname`
 
@@ -296,26 +386,61 @@ Create a single TAK group (e.g. `DATASYNC-FEEDS`) that acts as the global channe
 
 Putting paths in `certname`/`keyname` causes the checkbox to stay unchecked and shows paths as "uploaded filenames" with no actual cert data — TLS silently fails.
 
-#### Switched from `nodered-global-airdata` to `admin` cert
-
-TAK Server's `StreamingEndpointRewriteFilter` checks if the **TCP streaming client's cert CN** matches a user subscribed to the mission referenced in `<marti><dest mission="..."/>`. The old cert (`CN=nodered-global-airdata`) was not subscribed to the missions, causing:
-
-```
-ERROR StreamingEndpointRewriteFilter - unable to find mission subscription
-  for client CA AIR INTEL, CN=nodered-global-airdata,...
-```
-
-Fix: use `admin` cert (`CN=admin`) for both TCP streaming (8089) and Mission API (8443). Admin is already subscribed to both missions. Cert paths in `build-flows.js`:
-
+The correct `tls_tak` definition in `build-flows.js`:
 ```javascript
-cert: '/certs/admin.pem', key: '/certs/admin.key'
+{
+  id: 'tls_tak', type: 'tls-config',
+  name: 'TAK Mission API TLS',
+  cert: '/certs/admin.pem', key: '/certs/admin.key', ca: '',
+  certname: '', keyname: '', caname: '',
+  servername: '', verifyservercert: false
+}
 ```
-
-User must enter passphrase (`atakatak`) once in the Node-RED TLS config UI after first deploy.
 
 #### `flows_cred.json` gotcha
 
-Deploying via the Node-RED admin API (`POST /flows`) or `docker cp flows.json` does **not** update `flows_cred.json`. If credentials are wiped (e.g. `echo '{}' > flows_cred.json`), the passphrase is lost and must be re-entered. The `deploy.sh` script backs up and restores this file to prevent data loss.
+Deploying via the Node-RED admin API (`POST /flows`) or `docker cp flows.json` does **not** update `flows_cred.json`. If credentials are wiped (e.g. `echo '{}' > flows_cred.json`), the passphrase is lost and must be re-entered.
+
+**Deploy command that preserves/injects passphrase:**
+```bash
+docker exec nodered node -e "
+  var http = require('http');
+  var fs = require('fs');
+  var flows = JSON.parse(fs.readFileSync('/data/flows.json','utf8'));
+  var tls = flows.find(n => n.id === 'tls_tak');
+  if (tls) { tls.credentials = { passphrase: 'atakatak' }; }
+  var body = JSON.stringify(flows);
+  var req = http.request({
+    hostname:'127.0.0.1', port:1880, path:'/flows',
+    method:'POST', headers:{'Content-Type':'application/json','Node-RED-Deployment-Type':'full','Content-Length':Buffer.byteLength(body)}
+  }, function(res){ var d=''; res.on('data',function(c){d+=c}); res.on('end',function(){console.log(res.statusCode,d)}); });
+  req.write(body); req.end();
+"
+```
+
+#### `paytoqs: 'body'` — recurring regression
+
+The `http_action` node (Mission API PUT/DELETE) MUST have `paytoqs: 'body'`. This tells Node-RED to send `msg.payload` as the HTTP request body. Without it (default `'ignore'`), the `{"uids":[...]}` payload is silently dropped and the PUT registers nothing. This has regressed twice — always verify after regenerating `flows.json`.
+
+#### Deployment checklist (from git to working)
+
+On the server:
+```bash
+cd /root/infra-TAK && git pull
+docker cp nodered/flows.json nodered:/data/flows.json
+# Deploy with passphrase injection (see command above)
+```
+
+After first deploy on a fresh server, also enter passphrase `atakatak` in Node-RED UI:
+1. Open Node-RED editor
+2. Double-click any TCP Out node → click the pencil icon on TLS config
+3. Enter passphrase → Update → Deploy
+
+#### Open questions for next session
+
+1. **Can mission `defaultRole` be changed to `MISSION_READONLY_SUBSCRIBER` after admin is subscribed as SUBSCRIBER?** If the subscription role overrides the default, field users would get read-only while admin retains write. Need to test.
+2. **`StreamingEndpointRewriteFilter` error** — is there a way to suppress it, or does fixing the subscription via PUT /subscription resolve it? Currently cosmetic but clutters the log.
+3. **Non-admin integration user** — if we ever switch from admin to a dedicated user (e.g. `nodered-global-airdata`), that user needs: (a) IN direction on the mission's group, (b) explicit subscription to the mission, (c) cert CN matching the `creatorUid` in the Configurator.
 
 ### 2026-04-12 — New global integration user + DataSync PUT 403 / group direction investigation
 
@@ -345,14 +470,18 @@ Reconcile node fires 10 PUTs, all return empty response. Manual `curl -v` confir
 3. Changed default role to `MISSION_READONLY_SUBSCRIBER` in GUI — new subscribers get read-only
 4. **Finding**: changing default role may retroactively downgrade existing subscriptions. Re-subscribing while default is SUBSCRIBER restores write access.
 
-#### Confirmed working pattern (2026-04-15)
+#### Confirmed working pattern (2026-04-15) — DEFINITIVE
 
 **Use admin cert for all DataSync integrations.** Admin has `ROLE_ADMIN` so it bypasses x509 group direction issues (OUT-only bug). Requirements:
 
-1. Mission `defaultRole` **must be `MISSION_SUBSCRIBER`** — `MISSION_READONLY_SUBSCRIBER` silently blocks PUT/DELETE (returns 200 but UIDs don't stick, no error)
+1. Mission `defaultRole` **must be `MISSION_SUBSCRIBER`** — `MISSION_READONLY_SUBSCRIBER` silently blocks PUT/DELETE (returns 200 but UIDs don't stick, no error). **TODO: test changing to READONLY after admin is subscribed — subscription role may override default.**
 2. Admin must be **subscribed** to the mission (Node-RED does this automatically via `PUT /missions/{name}/subscription`)
-3. Stream CoT via TCP 8089 with `<Marti><dest mission="..."/></Marti>` tag to route to mission only (no broadcast)
-4. Wait 5 seconds for CotCache, then `PUT /missions/{name}/contents` with `{"uids":[...]}` body
+3. Stream CoT via TCP 8089 with **lowercase** `<marti><dest mission="..."/></marti>` tag **inside `<detail>`** to route to mission only (no broadcast)
+4. Wait 5 seconds for CotCache, then `PUT /missions/{name}/contents` with `{"uids":[...]}` body and `paytoqs: 'body'`
+5. TLS config: `cert`/`key` = local file paths, `certname`/`keyname` = empty. Passphrase stored in `flows_cred.json`.
+6. Callsign set from `cfg.style.labelField` attribute → human-readable names in DataSync
+
+**Result**: Map Items (not Files), no broadcast, correct callsigns, full reconciliation lifecycle.
 
 For non-admin integration users, additionally need `certmod -g "DATASYNC-FEED" -ig` to get IN direction.
 
