@@ -11916,12 +11916,28 @@ def _run_esri_tak_sync_cert_setup(mode, password, cert_name):
         plog(f'  cert : {cert_pem}')
         plog(f'  key  : {key_pem}')
         plog('  Config updated. Restart the service to use the new cert.')
-        plog('')
-        plog('⚠ ACTION REQUIRED — Group enrollment:')
-        plog('  The esri-push user must be in the same TAK group as your clients.')
-        plog('  In TAK Server Admin UI → User Management → find esri-push → assign to group')
-        plog('  (e.g. __ANON__ for unauthenticated clients, or your named group).')
-        plog('  Without this, TAK Server accepts the CoT but will NOT fan it out to clients.')
+
+        # ── Auto-enroll in TAK group if configured ────────────────────────────
+        tak_group = _esri_tak_sync_load_config().get('tak_group', '').strip()
+        src_pem   = os.path.join(tak_dir, 'certs', 'files', f'{cert_name}.pem')
+        utils_jar = os.path.join(tak_dir, 'utils', 'UserManager.jar')
+        if tak_group and os.path.exists(src_pem) and os.path.exists(utils_jar):
+            plog('')
+            plog(f'━━━ Enrolling cert in group "{tak_group}" ━━━')
+            r = subprocess.run(
+                ['sudo', '-E', '-u', 'tak', 'java', '-jar', utils_jar,
+                 'certmod', '-g', tak_group, src_pem],
+                capture_output=True, text=True, timeout=30
+            )
+            if r.returncode == 0:
+                plog(f'  ✓ esri-push added to group "{tak_group}"')
+            else:
+                plog(f'  ⚠ Group enrollment returned exit {r.returncode}')
+                plog(f'  {((r.stdout or "") + (r.stderr or ""))[:300]}')
+        else:
+            plog('')
+            plog('⚠ Group enrollment skipped — set a TAK Group in the Config section')
+            plog('  and click "Enroll in Group" so clients can receive the CoT feed.')
         status.update({'running': False, 'complete': True, 'error': False})
 
     except Exception as e:
@@ -11981,6 +11997,44 @@ def esri_tak_sync_cert_log_route():
     })
 
 
+@app.route('/api/esri-tak-sync/enroll-cert-group', methods=['POST'])
+@login_required
+def esri_tak_sync_enroll_cert_group():
+    """Add the esri-push cert to a TAK Server group via UserManager.jar certmod -g."""
+    data  = request.get_json(silent=True) or {}
+    group = (data.get('group') or '__ANON__').strip()
+    if not group:
+        return jsonify({'success': False, 'error': 'Group name is required'}), 400
+    if not os.path.isdir('/opt/tak'):
+        return jsonify({'success': False, 'error': 'TAK Server not found at /opt/tak'}), 400
+
+    # The pem file is in /opt/tak/certs/files/ (not our copy)
+    pem_path  = '/opt/tak/certs/files/esri-push.pem'
+    utils_jar = '/opt/tak/utils/UserManager.jar'
+
+    if not os.path.exists(pem_path):
+        return jsonify({'success': False, 'error': f'PEM not found at {pem_path} — generate the cert first'}), 400
+    if not os.path.exists(utils_jar):
+        return jsonify({'success': False, 'error': f'UserManager.jar not found at {utils_jar}'}), 400
+
+    try:
+        r = subprocess.run(
+            ['sudo', '-E', '-u', 'tak', 'java', '-jar', utils_jar,
+             'certmod', '-g', group, pem_path],
+            capture_output=True, text=True, timeout=30
+        )
+        output = (r.stdout or '') + (r.stderr or '')
+        if r.returncode != 0:
+            return jsonify({'success': False, 'error': output[:400] or f'Exit {r.returncode}'}), 500
+        # Save group to settings so it persists
+        cfg = _esri_tak_sync_load_config()
+        cfg['tak_group'] = group
+        _esri_tak_sync_save_config(cfg)
+        return jsonify({'success': True, 'output': output[:400]})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/esri-tak-sync')
 @login_required
 def esri_tak_sync_page():
@@ -12022,6 +12076,7 @@ def esri_tak_sync_save_config():
     data = request.get_json(silent=True) or {}
     cfg  = _esri_tak_sync_load_config()
     for key in ['tak_host', 'tak_port', 'tak_auth_mode', 'cert_password', 'ca_cert',
+                'tak_group',
                 'layer_url', 'layer_public', 'layer_type', 'esri_username',
                 'esri_password', 'portal_url', 'poll_interval', 'page_size',
                 'lat_field', 'lon_field', 'uid_field', 'uid_prefix',
@@ -12521,9 +12576,30 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:'DM Sans',s
         <span style="color:var(--green)">✓ Cert found — <code>{{ cert_pem_path }}</code></span>
         <button class="btn btn-ghost" style="font-size:12px;padding:4px 12px" onclick="document.getElementById('cert-replace-section').style.display=document.getElementById('cert-replace-section').style.display==='none'?'block':'none'">Replace…</button>
       </div>
-      <div id="cert-replace-section" style="display:none">
       {% else %}
       <p style="font-size:13px;color:var(--yellow);margin-bottom:14px">⚠ No cert found. The service needs a TAK Server-issued client cert for TLS auth (port 8089).</p>
+      {% endif %}
+
+      <!-- Group Enrollment — always visible when TAK Server is local -->
+      {% if tak_local %}
+      <div style="background:rgba(234,179,8,.05);border:1px solid rgba(234,179,8,.2);border-radius:10px;padding:14px 16px;margin-bottom:14px">
+        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:10px">
+          <strong style="color:var(--yellow)">Required:</strong> The <code>esri-push</code> cert must be in the same TAK group as your clients — otherwise TAK Server accepts the CoT but won't distribute it to WinTAK / iTAK / WebTAK.
+        </p>
+        <div style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap">
+          <div>
+            <label class="form-label" style="margin-bottom:4px">TAK Group</label>
+            <input id="tak_group" class="form-input" type="text" placeholder="__ANON__" value="{{ cfg.tak_group or '__ANON__' }}" style="width:200px">
+          </div>
+          <button class="btn btn-primary" style="padding:8px 16px" onclick="enrollCertGroup()">Enroll in Group</button>
+          <span id="enroll-msg" style="font-size:13px;align-self:center"></span>
+        </div>
+      </div>
+      {% endif %}
+
+      {% if cert_exists %}
+      <div id="cert-replace-section" style="display:none">
+      {% else %}
       <div id="cert-replace-section">
       {% endif %}
         {% if tak_local %}
@@ -13214,7 +13290,8 @@ function saveConfig(){
     cot_how:document.getElementById('cot_how').value,
     remarks_fields:document.getElementById('remarks_fields').value,
     delta_enabled:document.getElementById('delta_enabled').value==='1',
-    delta_field:document.getElementById('delta_field').value
+    delta_field:document.getElementById('delta_field').value,
+    tak_group:(document.getElementById('tak_group')||{value:''}).value.trim()
   };
   fetch('/api/esri-tak-sync/save-config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),credentials:'same-origin'})
     .then(function(r){return r.json();})
@@ -13222,6 +13299,22 @@ function saveConfig(){
       if(!msg)return;
       if(d.success){msg.textContent='✓ Saved — opening Icons…';msg.style.color='var(--green)';setTimeout(function(){msg.textContent='';showTab('icons');if(typeof loadIconsets==='function')loadIconsets();},1500);}
       else{msg.textContent='✗ Error';msg.style.color='var(--red)';}
+    }).catch(function(){if(msg){msg.textContent='Request failed';msg.style.color='var(--red)';}});
+}
+
+function enrollCertGroup(){
+  var groupEl=document.getElementById('tak_group');
+  var msg=document.getElementById('enroll-msg');
+  var group=(groupEl?groupEl.value.trim():'') || '__ANON__';
+  if(msg){msg.textContent='Enrolling…';msg.style.color='var(--text-dim)';}
+  fetch('/api/esri-tak-sync/enroll-cert-group',{method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({group:group}),credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(!msg)return;
+      if(d.success){msg.textContent='✓ Enrolled in "'+group+'"';msg.style.color='var(--green)';}
+      else{msg.textContent='✗ '+(d.error||'Failed');msg.style.color='var(--red)';}
     }).catch(function(){if(msg){msg.textContent='Request failed';msg.style.color='var(--red)';}});
 }
 
