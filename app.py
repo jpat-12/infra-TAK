@@ -12944,6 +12944,16 @@ function showTab(name){
   if(p)p.classList.add('active');
   if(b)b.classList.add('active');
 }
+// On load: jump to tab queued by a previous step (post-deploy → config, etc.)
+(function(){
+  var goto=sessionStorage.getItem('esri_sync_next_tab');
+  if(goto){
+    sessionStorage.removeItem('esri_sync_next_tab');
+    showTab(goto);
+    if(goto==='icons'){if(typeof loadIconsets==='function')loadIconsets();}
+    else if(goto==='service'){if(typeof refreshStatus==='function')refreshStatus();}
+  }
+})();
 
 function toggleAuth(){
   var pub=document.getElementById('layer_public').value==='1';
@@ -13068,7 +13078,7 @@ function saveConfig(){
     .then(function(r){return r.json();})
     .then(function(d){
       if(!msg)return;
-      if(d.success){msg.textContent='✓ Saved';msg.style.color='var(--green)';setTimeout(function(){msg.textContent='';},2500);}
+      if(d.success){msg.textContent='✓ Saved — opening Icons…';msg.style.color='var(--green)';setTimeout(function(){msg.textContent='';showTab('icons');if(typeof loadIconsets==='function')loadIconsets();},1500);}
       else{msg.textContent='✗ Error';msg.style.color='var(--red)';}
     }).catch(function(){if(msg){msg.textContent='Request failed';msg.style.color='var(--red)';}});
 }
@@ -13099,7 +13109,7 @@ function pollLog(){
       if(!d.running){
         clearInterval(_logPoll);_logPoll=null;
         if(d.error){if(btn){btn.disabled=false;btn.textContent='✗ Failed — Retry';btn.className='btn btn-danger';}if(msg){msg.textContent='Failed';msg.style.color='var(--red)';}}
-        else if(d.complete){if(msg){msg.textContent='✓ Done — reloading…';msg.style.color='var(--green)';}setTimeout(function(){location.reload();},1500);}
+        else if(d.complete){if(msg){msg.textContent='✓ Done — opening Config…';msg.style.color='var(--green)';}setTimeout(function(){sessionStorage.setItem('esri_sync_next_tab','config');location.reload();},1500);}
       }
     }).catch(function(){});
 }
@@ -13361,7 +13371,7 @@ function saveIconMapping(){
     body:JSON.stringify(payload),credentials:'same-origin'})
     .then(function(r){return r.json();})
     .then(function(d){
-      if(d.success){if(msg){msg.textContent='✓ Saved';msg.style.color='var(--green)';}}
+      if(d.success){if(msg){msg.textContent='✓ Saved — opening Service…';msg.style.color='var(--green)';setTimeout(function(){msg.textContent='';showTab('service');if(typeof refreshStatus==='function')refreshStatus();},1500);}}
       else{if(msg){msg.textContent='✗ '+(d.error||'Save failed');msg.style.color='var(--red)';}}
     }).catch(function(){if(msg){msg.textContent='Request failed';msg.style.color='var(--red)';}});
 }
