@@ -312,6 +312,17 @@ Reconcile node fires 10 PUTs, all return empty response. Manual `curl -v` confir
 3. Changed default role to `MISSION_READONLY_SUBSCRIBER` in GUI — new subscribers get read-only
 4. **Finding**: changing default role may retroactively downgrade existing subscriptions. Re-subscribing while default is SUBSCRIBER restores write access.
 
+#### Confirmed working pattern (2026-04-15)
+
+**Use admin cert for all DataSync integrations.** Admin has `ROLE_ADMIN` so it bypasses x509 group direction issues (OUT-only bug). Requirements:
+
+1. Mission `defaultRole` **must be `MISSION_SUBSCRIBER`** — `MISSION_READONLY_SUBSCRIBER` silently blocks PUT/DELETE (returns 200 but UIDs don't stick, no error)
+2. Admin must be **subscribed** to the mission (Node-RED does this automatically via `PUT /missions/{name}/subscription`)
+3. Stream CoT via TCP 8089 with `<Marti><dest mission="..."/></Marti>` tag to route to mission only (no broadcast)
+4. Wait 5 seconds for CotCache, then `PUT /missions/{name}/contents` with `{"uids":[...]}` body
+
+For non-admin integration users, additionally need `certmod -g "DATASYNC-FEED" -ig` to get IN direction.
+
 #### Group direction bug: x509 cert auth gets OUT only from base LDAP group
 
 **Symptom**: `nodered-global-datasyncfeed` in LDAP group `tak_DATASYNC-FEED` (base = BOTH). TAK Server groups API returns `direction: OUT` only. DataSync PUT returns 403.
