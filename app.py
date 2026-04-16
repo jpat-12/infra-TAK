@@ -13243,7 +13243,7 @@ function _certPollLog(){
     .then(function(d){
       var box=document.getElementById('cert-log-box');
       var msg=document.getElementById('cert-status-msg');
-      if(box&&d.entries&&d.entries.length){box.textContent+=(box.textContent?'\n':'')+d.entries.join('\n');box.scrollTop=box.scrollHeight;}
+      if(box&&d.entries&&d.entries.length){box.textContent+=(box.textContent?'\\n':'')+d.entries.join('\\n');box.scrollTop=box.scrollHeight;}
       _certLogIdx=d.total;
       if(!d.running){
         clearInterval(_certLogPoll);_certLogPoll=null;
