@@ -276,12 +276,16 @@ def build_cot(feature: dict, fm: dict, cot_cfg: dict, icon_cfg: dict | None = No
         hae = float(attrs.get(fm["altitude_field"], 0) or 0)
 
     # ── UID ───────────────────────────────────────────────────────────────────
-    uid_val  = attrs.get(fm.get("uid_field", "OBJECTID"), "unknown")
+    uid_val  = attrs.get(fm.get("uid_field", "OBJECTID")) or "unknown"
     uid      = f"{fm.get('uid_prefix', 'EsriSync')}_{uid_val}"
 
     # ── Callsign ──────────────────────────────────────────────────────────────
     cs_field = fm.get("callsign_field", "")
-    callsign = str(attrs.get(cs_field, uid_val)) if cs_field else str(uid_val)
+    if cs_field:
+        raw_cs = attrs.get(cs_field)
+        callsign = str(raw_cs) if raw_cs not in (None, "") else str(uid_val)
+    else:
+        callsign = str(uid_val)
 
     # ── CoT type ──────────────────────────────────────────────────────────────
     cot_type_cfg = fm.get("cot_type", "a-f-G")
