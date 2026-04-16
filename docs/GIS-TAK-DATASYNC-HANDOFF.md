@@ -235,7 +235,7 @@ Each feed (CA AIR INTEL, POWER-OUTAGES) gets its own engine tab with all nodes p
 - ~~**PST timestamp formatting**~~: ✅ Done. `fmtVal()` helper in `eng_parse` converts epoch > 1e12 to `MM/DD/YYYY H:MM PST` and rounds decimals.
 - ~~**Persist tcp out host/port in build-flows.js**~~: ✅ Done. Hardcoded `host.docker.internal:8089` in `makeEngineTab()`.
 - ~~**No-broadcast routing**~~: ✅ Done. `<marti><dest mission="..."/>` tag inside `<detail>` prevents map-wide broadcast. Confirmed on second ATAK device.
-- ~~**Multi-feed support**~~: ✅ Done. `FEEDS` array in `build-flows.js` generates one engine tab per feed. Currently `CA AIR INTEL` and `POWER-OUTAGES`.
+- ~~**Multi-feed support**~~: ✅ Done. Feeds are added via the **ArcGIS Configurator** (dynamic engine tabs). `FEEDS` in `build-flows.js` is kept **empty** so the shipped `flows.json` does not embed named production feeds on every box.
 - **Test `MISSION_READONLY_SUBSCRIBER` as `defaultRole`**: Currently must be `MISSION_SUBSCRIBER` for writes. Test whether changing to READONLY after admin is subscribed as SUBSCRIBER still allows admin to write (subscription role may override default).
 - **Multi-polygon support**: `eng_parse` currently only processes `g.rings[0]`. Iterate all rings, emit separate CoT per ring with UID `<prefix>-<id>-<ringIndex>`.
 - **Update detection**: Currently re-streams all CoT every poll (keeps TAK cache fresh). Could compare a hash of geometry/attributes to skip unchanged features for efficiency.
