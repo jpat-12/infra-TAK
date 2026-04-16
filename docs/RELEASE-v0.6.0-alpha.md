@@ -48,29 +48,38 @@ postfix/main_mailer_type → Internet Site
 
 ---
 
-## Node-RED (ArcGIS DataSync) enhancements
+## Node-RED — ArcGIS DataSync & FAA TFR Configurator (new)
 
-### FAA TFR ID fix
-TFR CoT builder now uses `notam_id` from the FAA API for display labels and associated links. Links point directly to the TFR detail page instead of the generic listing.
+This release introduces a complete system for streaming GIS vector data and FAA Temporary Flight Restrictions into TAK as live CoT objects. No Node-RED flow editing required — everything is configured through a web-based configurator UI.
 
-### Cold-start guards (ArcGIS + TFR)
-Eliminates post-restart churn where all feeds would delete and re-add every item (causing "119 new items" notifications in ATAK for data that was already there):
-- ArcGIS: empty API responses preserve existing hashes; cold-start seeds from mission.
-- TFR: empty `_tfrUids` skips reconcile instead of deleting everything; empty filter results preserve previous UIDs.
+### What it does
 
-### Template sync for dynamic engine tabs
-Code fixes in `build-flows.js` now automatically propagate to configurator-created tabs via `_templateKey` matching. No manual tab recreation needed after updates.
+- **ArcGIS → TAK:** Connect any ArcGIS Feature Service (wildfire perimeters, weather alerts, infrastructure, custom layers) and stream the features into a TAK Server mission as CoT markers/shapes. Features are diffed on each poll — only changes are pushed, not the full dataset.
+- **FAA TFR → TAK:** Pull active Temporary Flight Restrictions from the FAA API and display them on ATAK/iTAK/WinTAK with correct boundaries, labels, and direct links to the FAA detail page.
+- **Runs inside Node-RED**, which is already deployed and protected behind Authentik SSO as part of the infra-TAK stack.
 
-### TFR configurator enhancements
-- Labels on/off toggle (per-feed, default ON)
-- Capitalize names checkbox (per-feed, default OFF)
-- FAA NOTAM ID format clarification
+### How to access the configurator
 
-### Stable ArcGIS feature hashing
-Hash now only includes CoT-affecting fields (geometry, ID, label, remarks) instead of the entire feature object. Eliminates false hash mismatches from metadata changes between polls.
+1. Open Node-RED at `https://nodered.<your-fqdn>` (sign in with your Authentik credentials).
+2. The **Configurator** tab is the first tab in the flow editor. Click it to open the built-in configuration UI.
+3. In the configurator:
+   - **Step 1:** Enter your TAK Server connection details (host, port, mission name, credentials).
+   - **Step 2:** Add ArcGIS feeds — paste an ArcGIS Feature Service URL, pick the fields you want for labels/remarks, set a poll interval, and choose a CoT type.
+   - **Step 3:** Add TFR feeds — select a geographic bounding box and filter options (labels on/off, capitalize names, label format).
+   - **Step 4:** Click **Deploy** — the configurator generates all the Node-RED flow nodes automatically. Each feed gets its own engine tab.
+4. Data starts flowing to TAK Server immediately. Open ATAK and you'll see the features appear in your mission.
 
-### Deploy process — flow preservation
-`deploy.sh` never destroys user-created flows. Dynamic tabs, configs, TLS, TCP settings, and credentials all survive updates. Template sync updates function code in preserved tabs without losing configuration.
+### Key design decisions
+
+- **No flow editing needed.** The configurator generates and wires all nodes. Users who know Node-RED can still create their own flows alongside the generated ones — they are fully preserved on updates.
+- **Non-destructive updates.** Running `deploy.sh` (or updating via infra-TAK) never destroys user-created flows or configurator-created feeds. Dynamic engine tabs, configs, TLS certificates, TCP settings, and credentials all survive. A template sync mechanism (`_templateKey`) automatically updates function code in existing tabs when bug fixes ship — without losing your feed configuration.
+
+### Shipped with fixes and hardening
+
+- **FAA TFR ID fix** — TFR CoT builder uses `notam_id` from the FAA API for display labels and associated links. Links now point directly to the TFR detail page instead of the generic FAA listing.
+- **Cold-start guards (ArcGIS + TFR)** — after a Node-RED restart, feeds no longer "churn" (delete and re-add every item in the mission, causing mass notification noise in ATAK). ArcGIS preserves feature hashes across restarts; TFR skips reconcile when no data has been polled yet.
+- **Stable ArcGIS feature hashing** — hash only includes CoT-affecting fields (geometry, ID, label, remarks). Metadata changes between polls no longer trigger false updates.
+- **TFR configurator options** — per-feed labels on/off toggle, capitalize names checkbox, FAA NOTAM ID format clarification.
 
 ---
 
