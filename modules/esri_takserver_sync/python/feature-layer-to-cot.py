@@ -8,6 +8,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import signal
 import socket
 import ssl
@@ -15,6 +16,7 @@ import sys
 import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from xml.dom.minidom import parseString as _xml_pretty_parse
 from xml.sax.saxutils import escape as _xml_escape, quoteattr as _xml_quoteattr
 
 import requests
@@ -249,6 +251,31 @@ class FeatureLayerClient:
 
 def _fmt_time(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def _pretty_cot(xml_str: str) -> str:
+    """Return indented CoT XML without the <?xml?> declaration."""
+    try:
+        pretty = _xml_pretty_parse(xml_str).toprettyxml(indent="  ")
+        # Strip the <?xml version="1.0" ?> header line
+        lines = [l for l in pretty.splitlines() if l.strip() and not l.startswith("<?xml")]
+        return "\n".join(lines)
+    except Exception:
+        return xml_str
+
+
+def _extract_cot_fields(xml_str: str) -> dict:
+    """Quick regex pull of key fields for a one-line summary."""
+    def _attr(tag, name):
+        m = re.search(rf'{name}="([^"]*)"', xml_str)
+        return m.group(1) if m else "?"
+    return {
+        "uid":      _attr("event", "uid"),
+        "type":     _attr("event", "type"),
+        "callsign": _attr("contact", "callsign"),
+        "lat":      _attr("point", "lat"),
+        "lon":      _attr("point", "lon"),
+    }
 
 
 def build_cot(feature: dict, fm: dict, cot_cfg: dict, icon_cfg: dict | None = None) -> str:
@@ -638,7 +665,7 @@ def main():
         try:
             features = layer.fetch_all()
             sent = 0
-            sample_cot = None
+            sent_cots = []   # list of (index, cot_str) for post-poll logging
             tak.connect()
             try:
                 for feat in features:
@@ -668,14 +695,29 @@ def main():
                         cot = build_cot(feat, fm, cot_cfg, icon_cfg)
                         tak.send(cot)
                         sent += 1
-                        if sample_cot is None:
-                            sample_cot = cot
+                        sent_cots.append(cot)
             finally:
                 tak.close()
             delta.commit()
             log.info("Poll complete — sent %d / %d records", sent, len(features))
-            if sample_cot:
-                log.info("Sample CoT:\n%s", sample_cot)
+
+            if sent_cots:
+                # ── Compact per-record summary (all records) ──────────────────
+                lines = ["Sent records:"]
+                for i, cot in enumerate(sent_cots, 1):
+                    f = _extract_cot_fields(cot)
+                    lines.append(
+                        f"  [{i:>2}] uid={f['uid']}  callsign={f['callsign']}"
+                        f"  type={f['type']}  lat={f['lat']}  lon={f['lon']}"
+                    )
+                log.info("\n".join(lines))
+
+                # ── Full pretty-printed XML for first record ───────────────────
+                log.info("First CoT (pretty):\n%s", _pretty_cot(sent_cots[0]))
+
+                # ── Full pretty-printed XML for last record (if >1) ───────────
+                if len(sent_cots) > 1:
+                    log.info("Last CoT (pretty):\n%s", _pretty_cot(sent_cots[-1]))
 
         except RuntimeError as exc:
             log.error("%s", exc)
