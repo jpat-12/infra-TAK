@@ -376,16 +376,31 @@ class TAKClient:
 
     def connect(self):
         if self.auth_mode == "rest":
-            # REST mode: set up a requests.Session with Basic Auth
+            # REST mode: HTTPS POST to /Marti/api/cot/xml with HTTP Basic Auth.
+            # TAK Server 8443 uses mutual TLS, so we must also present a client
+            # certificate during the TLS handshake (same PEM sidecars as cert mode).
             self._session = requests.Session()
             self._session.auth = (self.username, self.password)
+
+            pem_cert = self.cert_path.replace(".p12", "-cert.pem")
+            pem_key  = self.cert_path.replace(".p12", "-key.pem")
+            if os.path.exists(pem_cert) and os.path.exists(pem_key):
+                self._session.cert = (pem_cert, pem_key)
+            else:
+                log.warning(
+                    "REST mode: PEM sidecars not found (%s / %s). "
+                    "TAK Server 8443 requires a client cert — set up the cert on the Config tab.",
+                    pem_cert, pem_key
+                )
+
             if not self.ca_cert:
                 self._session.verify = False
                 import urllib3
                 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
             else:
                 self._session.verify = self.ca_cert
-            log.info("REST mode: will POST CoT to https://%s:%d/Marti/api/cot/xml",
+
+            log.info("REST mode: will POST CoT to https://%s:%d/Marti/api/cot/xml (Basic Auth + mTLS)",
                      self.host, self.port)
             return
 

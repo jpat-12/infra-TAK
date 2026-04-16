@@ -12591,7 +12591,7 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:'DM Sans',s
             <input id="tak_password" class="form-input" type="password" value="{{ cfg.tak_password or '' }}">
           </div>
         </div>
-        <p class="hint">CoT will be POST-ed to <code>https://&lt;host&gt;:8443/Marti/api/cot/xml</code> with Basic Auth. No cert files needed.</p>
+        <p class="hint">CoT is POST-ed to <code>https://&lt;host&gt;:8443/Marti/api/cot/xml</code>. TAK Server 8443 uses mutual TLS, so the cert below is still needed for the TLS handshake — username/password handles HTTP-level auth.</p>
       </div>
 
       <!-- Cert auth fields -->
@@ -12607,8 +12607,8 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:'DM Sans',s
         </div>
       </div>
 
-      <!-- Client Certificate (hidden when REST auth mode selected) -->
-      <div id="cert-section-wrapper" style="display:{% if cfg.get('tak_auth_mode')=='rest' %}none{% else %}block{% endif %}">
+      <!-- Client Certificate (always required — mTLS on all TAK Server ports) -->
+      <div id="cert-section-wrapper">
       <div class="section-title" style="margin-top:18px">🔒 Client Certificate</div>
       {% if cert_exists %}
       <div style="background:rgba(16,185,129,.05);border:1px solid rgba(16,185,129,.2);border-radius:10px;padding:12px 16px;margin-bottom:12px;font-size:13px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
@@ -13333,11 +13333,9 @@ function toggleAuthMode(){
   var mode=document.getElementById('tak_auth_mode').value;
   var restSec=document.getElementById('rest-auth-section');
   var certSec=document.getElementById('cert-auth-section');
-  var certWrap=document.getElementById('cert-section-wrapper');
   var isRest=mode==='rest';
   if(restSec)restSec.style.display=isRest?'block':'none';
   if(certSec)certSec.style.display=isRest?'none':'block';
-  if(certWrap)certWrap.style.display=isRest?'none':'block';
   // Auto-set port if user hasn't changed it manually
   var portEl=document.getElementById('tak_port');
   if(portEl){
