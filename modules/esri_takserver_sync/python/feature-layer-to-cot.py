@@ -8,7 +8,6 @@ import hashlib
 import json
 import logging
 import os
-import re
 import signal
 import socket
 import ssl
@@ -263,19 +262,6 @@ def _pretty_cot(xml_str: str) -> str:
     except Exception:
         return xml_str
 
-
-def _extract_cot_fields(xml_str: str) -> dict:
-    """Quick regex pull of key fields for a one-line summary."""
-    def _attr(tag, name):
-        m = re.search(rf'{name}="([^"]*)"', xml_str)
-        return m.group(1) if m else "?"
-    return {
-        "uid":      _attr("event", "uid"),
-        "type":     _attr("event", "type"),
-        "callsign": _attr("contact", "callsign"),
-        "lat":      _attr("point", "lat"),
-        "lon":      _attr("point", "lon"),
-    }
 
 
 def build_cot(feature: dict, fm: dict, cot_cfg: dict, icon_cfg: dict | None = None) -> str:
@@ -702,22 +688,8 @@ def main():
             log.info("Poll complete — sent %d / %d records", sent, len(features))
 
             if sent_cots:
-                # ── Compact per-record summary (all records) ──────────────────
-                lines = ["Sent records:"]
                 for i, cot in enumerate(sent_cots, 1):
-                    f = _extract_cot_fields(cot)
-                    lines.append(
-                        f"  [{i:>2}] uid={f['uid']}  callsign={f['callsign']}"
-                        f"  type={f['type']}  lat={f['lat']}  lon={f['lon']}"
-                    )
-                log.info("\n".join(lines))
-
-                # ── Full pretty-printed XML for first record ───────────────────
-                log.info("First CoT (pretty):\n%s", _pretty_cot(sent_cots[0]))
-
-                # ── Full pretty-printed XML for last record (if >1) ───────────
-                if len(sent_cots) > 1:
-                    log.info("Last CoT (pretty):\n%s", _pretty_cot(sent_cots[-1]))
+                    log.info("CoT [%d/%d]:\n%s", i, len(sent_cots), _pretty_cot(cot))
 
         except RuntimeError as exc:
             log.error("%s", exc)
