@@ -12606,7 +12606,6 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:'DM Sans',s
           <p class="hint">Leave empty to skip TAK Server cert verification (OK for internal/dev).</p>
         </div>
       </div>
-      </div>
 
       <!-- Client Certificate (hidden when REST auth mode selected) -->
       <div id="cert-section-wrapper" style="display:{% if cfg.get('tak_auth_mode')=='rest' %}none{% else %}block{% endif %}">
