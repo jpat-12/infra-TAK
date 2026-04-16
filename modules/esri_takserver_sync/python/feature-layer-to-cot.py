@@ -33,8 +33,12 @@ DEFAULT_CONFIG = {
         #             The cert must be enrolled/trusted by TAK Server.
         #   "plain" — Plain TCP, no certificate required (port 8087 default)
         #             Use this for quick testing or when TLS is handled upstream.
+        #   "rest"  — HTTPS REST API POST to /Marti/api/cot/xml (port 8443 default)
+        #             Uses HTTP Basic Auth (username + password). No cert files needed.
         "auth_mode": "cert",
         "port": 8089,
+        "username": "",         # REST mode only
+        "password": "",         # REST mode only
         "cert_path": "/opt/Esri-TAKServer-Sync/certs/esri-push.p12",
         "cert_password": "",
         "ca_cert": ""           # path to TAK Server CA cert for verification; empty = no verify
@@ -338,15 +342,17 @@ def build_cot(feature: dict, fm: dict, cot_cfg: dict, icon_cfg: dict | None = No
 _AUTH_MODE_DEFAULT_PORTS = {
     "cert":  8089,   # TLS with client certificate
     "plain": 8087,   # Plain TCP, no certificate
+    "rest":  8443,   # HTTPS REST API with Basic Auth
 }
 
 
 class TAKClient:
     """
-    Persistent TCP connection to TAK Server.
+    TAK Server client.
 
     auth_mode = "cert"  → TLS with .p12 client certificate (port 8089)
     auth_mode = "plain" → Plain TCP, no certificate required (port 8087)
+    auth_mode = "rest"  → HTTPS REST API POST /Marti/api/cot/xml (port 8443)
     """
 
     def __init__(self, cfg: dict):
@@ -358,14 +364,31 @@ class TAKClient:
         default_port    = _AUTH_MODE_DEFAULT_PORTS.get(self.auth_mode, 8089)
         self.port       = int(tak.get("port") or default_port)
 
+        self.username   = tak.get("username", "")
+        self.password   = tak.get("password", "")
         self.cert_path  = tak.get("cert_path", "")
         self.cert_pass  = tak.get("cert_password", "")
         self.ca_cert    = tak.get("ca_cert", "")
         self._sock      = None
+        self._session   = None   # requests.Session for REST mode
 
     # ── Connection ────────────────────────────────────────────────────────────
 
     def connect(self):
+        if self.auth_mode == "rest":
+            # REST mode: set up a requests.Session with Basic Auth
+            self._session = requests.Session()
+            self._session.auth = (self.username, self.password)
+            if not self.ca_cert:
+                self._session.verify = False
+                import urllib3
+                urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            else:
+                self._session.verify = self.ca_cert
+            log.info("REST mode: will POST CoT to https://%s:%d/Marti/api/cot/xml",
+                     self.host, self.port)
+            return
+
         raw = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         raw.settimeout(10)
         raw.connect((self.host, self.port))
@@ -437,7 +460,19 @@ class TAKClient:
     # ── Send ──────────────────────────────────────────────────────────────────
 
     def send(self, cot_xml: str):
-        """Send one CoT event. Reconnects once on actual send failure."""
+        """Send one CoT event."""
+        if self.auth_mode == "rest":
+            url = f"https://{self.host}:{self.port}/Marti/api/cot/xml"
+            resp = self._session.post(
+                url, data=cot_xml.encode("utf-8"),
+                headers={"Content-Type": "application/xml"},
+                timeout=10
+            )
+            if resp.status_code not in (200, 201, 204):
+                raise RuntimeError(f"REST CoT POST returned HTTP {resp.status_code}: {resp.text[:200]}")
+            return
+
+        # TCP / TLS path
         data = (cot_xml + "\n").encode("utf-8")
         try:
             if not self._sock:
@@ -459,6 +494,12 @@ class TAKClient:
             except Exception:
                 pass
         self._sock = None
+        if self._session:
+            try:
+                self._session.close()
+            except Exception:
+                pass
+        self._session = None
 
 
 # ── Delta Tracker ─────────────────────────────────────────────────────────────

@@ -11681,11 +11681,14 @@ def _run_esri_tak_sync_install():
         plog("━━━ Step 3/6: Writing config.json ━━━")
         config_path = os.path.join(ESRI_TAK_SYNC_DIR, 'config.json')
         auth_mode = (cfg.get('tak_auth_mode') or 'cert').strip()
+        default_port = {'cert': 8089, 'plain': 8087, 'rest': 8443}.get(auth_mode, 8089)
         config_data = {
             "tak_server": {
                 "host":          (cfg.get('tak_host') or 'localhost').strip(),
-                "port":          int(cfg.get('tak_port') or (8089 if auth_mode == 'cert' else 8087)),
+                "port":          int(cfg.get('tak_port') or default_port),
                 "auth_mode":     auth_mode,
+                "username":      (cfg.get('tak_username') or '').strip(),
+                "password":      (cfg.get('tak_password') or '').strip(),
                 "cert_path":     os.path.join(ESRI_TAK_SYNC_DIR, 'certs', 'esri-push.p12'),
                 "cert_password": (cfg.get('cert_password') or '').strip(),
                 "ca_cert":       (cfg.get('ca_cert') or '').strip()
@@ -12088,8 +12091,8 @@ def esri_tak_sync_page():
 def esri_tak_sync_save_config():
     data = request.get_json(silent=True) or {}
     cfg  = _esri_tak_sync_load_config()
-    for key in ['tak_host', 'tak_port', 'tak_auth_mode', 'cert_password', 'ca_cert',
-                'tak_group',
+    for key in ['tak_host', 'tak_port', 'tak_auth_mode', 'tak_username', 'tak_password',
+                'cert_password', 'ca_cert', 'tak_group',
                 'layer_url', 'layer_public', 'layer_type', 'esri_username',
                 'esri_password', 'portal_url', 'poll_interval', 'page_size',
                 'lat_field', 'lon_field', 'uid_field', 'uid_prefix',
@@ -12569,22 +12572,44 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:'DM Sans',s
       </div>
       <div class="form-group">
         <label class="form-label">Auth Mode</label>
-        <select id="tak_auth_mode" class="form-input">
-          <option value="cert" {% if cfg.get('tak_auth_mode','cert')=='cert' %}selected{% endif %}>TLS/Cert (port 8089)</option>
-          <option value="plain" {% if cfg.get('tak_auth_mode','cert')!='cert' %}selected{% endif %}>Plain TCP (port 8087)</option>
+        <select id="tak_auth_mode" class="form-input" onchange="toggleAuthMode()">
+          <option value="cert"  {% if cfg.get('tak_auth_mode','cert')=='cert'  %}selected{% endif %}>TLS/Cert (port 8089)</option>
+          <option value="plain" {% if cfg.get('tak_auth_mode')=='plain' %}selected{% endif %}>Plain TCP (port 8087)</option>
+          <option value="rest"  {% if cfg.get('tak_auth_mode')=='rest'  %}selected{% endif %}>REST / User+Pass (port 8443)</option>
         </select>
       </div>
-      <div class="form-group">
-        <label class="form-label">P12 Certificate Password <span style="font-weight:400;color:var(--text-dim)">(leave blank if none)</span></label>
-        <input id="cert_password" class="form-input" type="password" placeholder="" value="{{ cfg.cert_password or '' }}">
-      </div>
-      <div class="form-group">
-        <label class="form-label">CA Cert Path <span style="font-weight:400;color:var(--text-dim)">(optional — path to TAK Server CA .pem for verification)</span></label>
-        <input id="ca_cert" class="form-input" type="text" placeholder="/opt/Esri-TAKServer-Sync/certs/takserver-ca.pem" value="{{ cfg.ca_cert or '' }}">
-        <p class="hint">Leave empty to skip TAK Server cert verification (OK for internal/dev).</p>
+
+      <!-- REST auth fields (user/pass) -->
+      <div id="rest-auth-section" style="display:{% if cfg.get('tak_auth_mode')=='rest' %}block{% else %}none{% endif %}">
+        <div class="grid2">
+          <div class="form-group">
+            <label class="form-label">TAK Username</label>
+            <input id="tak_username" class="form-input" type="text" placeholder="admin" value="{{ cfg.tak_username or '' }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">TAK Password</label>
+            <input id="tak_password" class="form-input" type="password" value="{{ cfg.tak_password or '' }}">
+          </div>
+        </div>
+        <p class="hint">CoT will be POST-ed to <code>https://&lt;host&gt;:8443/Marti/api/cot/xml</code> with Basic Auth. No cert files needed.</p>
       </div>
 
-      <!-- Client Certificate -->
+      <!-- Cert auth fields -->
+      <div id="cert-auth-section" style="display:{% if cfg.get('tak_auth_mode')=='rest' %}none{% else %}block{% endif %}">
+        <div class="form-group">
+          <label class="form-label">P12 Certificate Password <span style="font-weight:400;color:var(--text-dim)">(leave blank if none)</span></label>
+          <input id="cert_password" class="form-input" type="password" placeholder="" value="{{ cfg.cert_password or '' }}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">CA Cert Path <span style="font-weight:400;color:var(--text-dim)">(optional — path to TAK Server CA .pem for verification)</span></label>
+          <input id="ca_cert" class="form-input" type="text" placeholder="/opt/Esri-TAKServer-Sync/certs/takserver-ca.pem" value="{{ cfg.ca_cert or '' }}">
+          <p class="hint">Leave empty to skip TAK Server cert verification (OK for internal/dev).</p>
+        </div>
+      </div>
+      </div>
+
+      <!-- Client Certificate (hidden when REST auth mode selected) -->
+      <div id="cert-section-wrapper" style="display:{% if cfg.get('tak_auth_mode')=='rest' %}none{% else %}block{% endif %}">
       <div class="section-title" style="margin-top:18px">🔒 Client Certificate</div>
       {% if cert_exists %}
       <div style="background:rgba(16,185,129,.05);border:1px solid rgba(16,185,129,.2);border-radius:10px;padding:12px 16px;margin-bottom:12px;font-size:13px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
@@ -12656,6 +12681,7 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:'DM Sans',s
         <div id="cert-log-box" class="log-box" style="margin-top:12px;display:none"></div>
         <div id="cert-status-msg" style="font-size:13px;margin-top:8px"></div>
       </div>
+      </div><!-- end cert-section-wrapper -->
 
       <div class="section-title">Feature Layer</div>
       <div class="form-group">
@@ -13304,6 +13330,24 @@ function uploadCert(){
 }
 // ── End cert setup ──────────────────────────────────────────────────────────
 
+function toggleAuthMode(){
+  var mode=document.getElementById('tak_auth_mode').value;
+  var restSec=document.getElementById('rest-auth-section');
+  var certSec=document.getElementById('cert-auth-section');
+  var certWrap=document.getElementById('cert-section-wrapper');
+  var isRest=mode==='rest';
+  if(restSec)restSec.style.display=isRest?'block':'none';
+  if(certSec)certSec.style.display=isRest?'none':'block';
+  if(certWrap)certWrap.style.display=isRest?'none':'block';
+  // Auto-set port if user hasn't changed it manually
+  var portEl=document.getElementById('tak_port');
+  if(portEl){
+    if(mode==='rest'&&(portEl.value==='8089'||portEl.value==='8087'))portEl.value='8443';
+    else if(mode==='cert'&&(portEl.value==='8443'||portEl.value==='8087'))portEl.value='8089';
+    else if(mode==='plain'&&(portEl.value==='8443'||portEl.value==='8089'))portEl.value='8087';
+  }
+}
+
 function saveConfig(){
   var msg=document.getElementById('save-msg');
   if(msg){msg.textContent='Saving…';msg.style.color='var(--text-dim)';}
@@ -13311,8 +13355,10 @@ function saveConfig(){
     tak_host:document.getElementById('tak_host').value,
     tak_port:parseInt(document.getElementById('tak_port').value)||8089,
     tak_auth_mode:document.getElementById('tak_auth_mode').value,
-    cert_password:document.getElementById('cert_password').value,
-    ca_cert:document.getElementById('ca_cert').value,
+    tak_username:(document.getElementById('tak_username')||{value:''}).value,
+    tak_password:(document.getElementById('tak_password')||{value:''}).value,
+    cert_password:(document.getElementById('cert_password')||{value:''}).value,
+    ca_cert:(document.getElementById('ca_cert')||{value:''}).value,
     layer_url:document.getElementById('layer_url').value,
     layer_public:document.getElementById('layer_public').value==='1',
     layer_type:document.getElementById('layer_type').value,
