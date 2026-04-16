@@ -276,8 +276,27 @@ def build_cot(feature: dict, fm: dict, cot_cfg: dict, icon_cfg: dict | None = No
         hae = float(attrs.get(fm["altitude_field"], 0) or 0)
 
     # ── UID ───────────────────────────────────────────────────────────────────
-    uid_val  = attrs.get(fm.get("uid_field", "OBJECTID")) or "unknown"
-    uid      = f"{fm.get('uid_prefix', 'EsriSync')}_{uid_val}"
+    _uid_field = fm.get("uid_field", "OBJECTID") or "OBJECTID"
+    uid_val    = attrs.get(_uid_field)
+    # If exact match fails, try case-insensitive then common Esri OID aliases
+    if uid_val is None:
+        _lower = _uid_field.lower()
+        for _k, _v in attrs.items():
+            if _k.lower() == _lower:
+                uid_val = _v
+                break
+    if uid_val is None:
+        for _alias in ("OBJECTID", "FID", "OID", "objectid", "fid", "oid", "GlobalID", "GlobalId"):
+            if _alias in attrs:
+                uid_val = attrs[_alias]
+                break
+    if uid_val in (None, ""):
+        uid_val = "unknown"
+        logging.warning(
+            "UID field %r not found in attributes; set uid_field in config. "
+            "Available fields: %s", _uid_field, list(attrs.keys())
+        )
+    uid = f"{fm.get('uid_prefix', 'EsriSync')}_{uid_val}"
 
     # ── Callsign ──────────────────────────────────────────────────────────────
     cs_field = fm.get("callsign_field", "")
@@ -616,8 +635,21 @@ def main():
             tak.connect()
             try:
                 for feat in features:
-                    attrs   = feat.get("attributes", {})
-                    uid_val = attrs.get(fm.get("uid_field", "OBJECTID"), "unknown")
+                    attrs    = feat.get("attributes", {})
+                    _uf      = fm.get("uid_field", "OBJECTID") or "OBJECTID"
+                    _uid_raw = attrs.get(_uf)
+                    if _uid_raw is None:
+                        _lf = _uf.lower()
+                        for _k, _v in attrs.items():
+                            if _k.lower() == _lf:
+                                _uid_raw = _v
+                                break
+                    if _uid_raw is None:
+                        for _al in ("OBJECTID", "FID", "OID", "objectid", "fid", "oid", "GlobalID"):
+                            if _al in attrs:
+                                _uid_raw = attrs[_al]
+                                break
+                    uid_val = _uid_raw if _uid_raw not in (None, "") else "unknown"
                     uid     = f"{fm.get('uid_prefix', 'EsriSync')}_{uid_val}"
                     if delta.is_new_or_changed(uid, attrs):
                         cot = build_cot(feat, fm, cot_cfg, icon_cfg)

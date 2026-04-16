@@ -12732,58 +12732,111 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:'DM Sans',s
       </div>
 
       <div class="section-title">Field Mapping</div>
+      <p style="font-size:12px;color:var(--text-dim);margin:0 0 12px 0">
+        Enter the exact field names from your Feature Layer. Each setting maps directly to a CoT XML attribute.
+      </p>
+
+      <!-- CoT XML preview banner -->
+      <div style="background:var(--bg-3,#1a1a2e);border:1px solid var(--border);border-radius:6px;padding:10px 14px;font-family:monospace;font-size:11px;color:#7ecfff;margin-bottom:16px;overflow-x:auto;white-space:pre;line-height:1.7">&lt;event uid="<span style="color:#ffd580">PREFIX</span>_<span style="color:#a0e080">UIDFIELD</span>" type="<span style="color:#f9a8d4">COT_TYPE</span>" how="<span style="color:#c4b5fd">HOW</span>" stale="<span style="color:#fb923c">STALE</span>"&gt;
+  &lt;point lat="<span style="color:#34d399">LAT</span>" lon="<span style="color:#34d399">LON</span>" hae="<span style="color:#34d399">ALT</span>" /&gt;
+  &lt;detail&gt;
+    &lt;contact callsign="<span style="color:#60a5fa">CALLSIGN</span>" uid="<span style="color:#a0e080">PREFIX_UIDFIELD</span>" /&gt;
+    &lt;remarks&gt;<span style="color:#e5e7eb">REMARKS FIELDS</span>&lt;/remarks&gt;
+  &lt;/detail&gt;
+&lt;/event&gt;</div>
+
       <div class="grid2">
         <div class="form-group">
-          <label class="form-label">UID Field</label>
+          <label class="form-label">
+            UID Field
+            <span style="font-weight:400;font-size:10px;background:#2d3748;color:#a0e080;border-radius:3px;padding:1px 5px;margin-left:6px;font-family:monospace">&lt;event uid="PREFIX_<b>value</b>"&gt;</span>
+          </label>
           <input id="uid_field" class="form-input" type="text" placeholder="OBJECTID" value="{{ cfg.uid_field or '' }}">
+          <p class="hint">Unique field name per record (e.g. OBJECTID, FID, GlobalID). Each record needs a different value or only one marker will appear.</p>
         </div>
         <div class="form-group">
-          <label class="form-label">UID Prefix</label>
+          <label class="form-label">
+            UID Prefix
+            <span style="font-weight:400;font-size:10px;background:#2d3748;color:#ffd580;border-radius:3px;padding:1px 5px;margin-left:6px;font-family:monospace">&lt;event uid="<b>PREFIX</b>_value"&gt;</span>
+          </label>
           <input id="uid_prefix" class="form-input" type="text" placeholder="EsriSync" value="{{ cfg.uid_prefix or '' }}">
+          <p class="hint">Prepended to every UID to avoid collisions with other CoT sources.</p>
         </div>
       </div>
       <div class="grid2">
         <div class="form-group">
-          <label class="form-label">Callsign Field <span style="font-weight:400;color:var(--text-dim)">(empty = use UID value)</span></label>
+          <label class="form-label">
+            Callsign Field
+            <span style="font-weight:400;font-size:10px;background:#2d3748;color:#60a5fa;border-radius:3px;padding:1px 5px;margin-left:6px;font-family:monospace">&lt;contact callsign="<b>value</b>"&gt;</span>
+          </label>
           <input id="callsign_field" class="form-input" type="text" placeholder="" value="{{ cfg.callsign_field or '' }}">
+          <p class="hint">Label shown in TAK. Empty = falls back to UID value.</p>
         </div>
         <div class="form-group">
-          <label class="form-label">CoT Type <span style="font-weight:400;color:var(--text-dim)">(or <code>field:FieldName</code>)</span></label>
+          <label class="form-label">
+            CoT Type
+            <span style="font-weight:400;font-size:10px;background:#2d3748;color:#f9a8d4;border-radius:3px;padding:1px 5px;margin-left:6px;font-family:monospace">&lt;event type="<b>value</b>"&gt;</span>
+          </label>
           <input id="cot_type" class="form-input" type="text" placeholder="a-f-G" value="{{ cfg.cot_type or '' }}">
+          <p class="hint">Fixed type (e.g. <code>a-f-G</code>) or <code>field:FieldName</code> to read from data.</p>
         </div>
       </div>
       <div class="grid2">
         <div class="form-group">
-          <label class="form-label">Lat Field <span style="font-weight:400;color:var(--text-dim)">(empty = use geometry)</span></label>
+          <label class="form-label">
+            Lat Field
+            <span style="font-weight:400;font-size:10px;background:#2d3748;color:#34d399;border-radius:3px;padding:1px 5px;margin-left:6px;font-family:monospace">&lt;point lat="<b>value</b>"&gt;</span>
+          </label>
           <input id="lat_field" class="form-input" type="text" placeholder="" value="{{ cfg.lat_field or '' }}">
+          <p class="hint">Empty = read from geometry (recommended for point layers).</p>
         </div>
         <div class="form-group">
-          <label class="form-label">Lon Field <span style="font-weight:400;color:var(--text-dim)">(empty = use geometry)</span></label>
+          <label class="form-label">
+            Lon Field
+            <span style="font-weight:400;font-size:10px;background:#2d3748;color:#34d399;border-radius:3px;padding:1px 5px;margin-left:6px;font-family:monospace">&lt;point lon="<b>value</b>"&gt;</span>
+          </label>
           <input id="lon_field" class="form-input" type="text" placeholder="" value="{{ cfg.lon_field or '' }}">
+          <p class="hint">Empty = read from geometry (recommended for point layers).</p>
         </div>
       </div>
       <div class="grid2">
         <div class="form-group">
-          <label class="form-label">Altitude Field <span style="font-weight:400;color:var(--text-dim)">(empty = 0)</span></label>
+          <label class="form-label">
+            Altitude Field
+            <span style="font-weight:400;font-size:10px;background:#2d3748;color:#34d399;border-radius:3px;padding:1px 5px;margin-left:6px;font-family:monospace">&lt;point hae="<b>value</b>"&gt;</span>
+          </label>
           <input id="altitude_field" class="form-input" type="text" placeholder="" value="{{ cfg.altitude_field or '' }}">
+          <p class="hint">Height above ellipsoid in meters. Empty = 0.</p>
         </div>
         <div class="form-group">
-          <label class="form-label">Stale (minutes)</label>
+          <label class="form-label">
+            Stale (minutes)
+            <span style="font-weight:400;font-size:10px;background:#2d3748;color:#fb923c;border-radius:3px;padding:1px 5px;margin-left:6px;font-family:monospace">&lt;event stale="now+<b>N</b>min"&gt;</span>
+          </label>
           <input id="stale_minutes" class="form-input" type="number" placeholder="5" value="{{ cfg.stale_minutes or '5' }}">
-        </div>
-        <div class="form-group">
-          <label class="form-label">CoT How <span style="font-weight:400;color:var(--text-dim)">(position source)</span></label>
-          <select id="cot_how" class="form-input">
-            <option value="m-g" {% if (cfg.cot_how or 'm-g')=='m-g' %}selected{% endif %}>m-g — GPS</option>
-            <option value="h-g-i-g-o" {% if cfg.cot_how=='h-g-i-g-o' %}selected{% endif %}>h-g-i-g-o — INS</option>
-            <option value="h-e" {% if cfg.cot_how=='h-e' %}selected{% endif %}>h-e — Human estimated</option>
-            <option value="m-f" {% if cfg.cot_how=='m-f' %}selected{% endif %}>m-f — Calculated</option>
-          </select>
+          <p class="hint">How long TAK keeps the marker before graying it out.</p>
         </div>
       </div>
       <div class="form-group">
-        <label class="form-label">Remarks Fields <span style="font-weight:400;color:var(--text-dim)">(comma-separated field names)</span></label>
-        <input id="remarks_fields" class="form-input" type="text" placeholder="Status, Notes" value="{{ cfg.remarks_fields or '' }}">
+        <label class="form-label">
+          CoT How
+          <span style="font-weight:400;font-size:10px;background:#2d3748;color:#c4b5fd;border-radius:3px;padding:1px 5px;margin-left:6px;font-family:monospace">&lt;event how="<b>value</b>"&gt;</span>
+        </label>
+        <select id="cot_how" class="form-input" style="max-width:340px">
+          <option value="m-g" {% if (cfg.cot_how or 'm-g')=='m-g' %}selected{% endif %}>m-g — Machine / GPS fix</option>
+          <option value="h-g-i-g-o" {% if cfg.cot_how=='h-g-i-g-o' %}selected{% endif %}>h-g-i-g-o — INS</option>
+          <option value="h-e" {% if cfg.cot_how=='h-e' %}selected{% endif %}>h-e — Human estimated</option>
+          <option value="m-f" {% if cfg.cot_how=='m-f' %}selected{% endif %}>m-f — Calculated</option>
+        </select>
+        <p class="hint">Position acquisition method — affects icon styling in some TAK clients.</p>
+      </div>
+      <div class="form-group">
+        <label class="form-label">
+          Remarks Fields
+          <span style="font-weight:400;font-size:10px;background:#2d3748;color:#e5e7eb;border-radius:3px;padding:1px 5px;margin-left:6px;font-family:monospace">&lt;remarks&gt;<b>field: value, ...</b>&lt;/remarks&gt;</span>
+        </label>
+        <input id="remarks_fields" class="form-input" type="text" placeholder="Status, Notes, Address" value="{{ cfg.remarks_fields or '' }}">
+        <p class="hint">Comma-separated list of field names. Values are shown in the TAK popup when you tap a marker.</p>
       </div>
 
       <div class="section-title">Delta / Change Detection</div>
