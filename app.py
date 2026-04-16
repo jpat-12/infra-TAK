@@ -12544,7 +12544,7 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:'DM Sans',s
       {% else %}
       <div id="deploy-log-box" class="log-box" style="display:none;margin-bottom:16px"></div>
       <div style="display:flex;align-items:center;gap:12px">
-        <button id="deploy-btn" class="btn btn-primary" onclick="startDeploy()">🚀 Deploy</button>
+        <button id="deploy-btn" class="btn {% if mod.installed %}btn-ghost{% else %}btn-primary{% endif %}" {% if mod.installed %}style="border-color:var(--yellow);color:var(--yellow)"{% endif %} onclick="startDeploy()">{% if mod.installed %}🔄 Re-Deploy{% else %}🚀 Deploy{% endif %}</button>
         <span id="deploy-status-msg" style="font-size:13px;color:var(--text-dim)"></span>
       </div>
       {% endif %}
