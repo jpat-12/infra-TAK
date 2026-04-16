@@ -12607,8 +12607,8 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:'DM Sans',s
         </div>
       </div>
 
-      <!-- Client Certificate (always required — mTLS on all TAK Server ports) -->
-      <div id="cert-section-wrapper">
+      <!-- Client Certificate — shown only when cert auth mode is selected -->
+      <div id="cert-section-wrapper" style="display:{% if cfg.get('tak_auth_mode') in ('plain','rest') %}none{% else %}block{% endif %}">
       <div class="section-title" style="margin-top:18px">🔒 Client Certificate</div>
       {% if cert_exists %}
       <div style="background:rgba(16,185,129,.05);border:1px solid rgba(16,185,129,.2);border-radius:10px;padding:12px 16px;margin-bottom:12px;font-size:13px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
@@ -13333,10 +13333,13 @@ function toggleAuthMode(){
   var mode=document.getElementById('tak_auth_mode').value;
   var restSec=document.getElementById('rest-auth-section');
   var certSec=document.getElementById('cert-auth-section');
+  var certWrap=document.getElementById('cert-section-wrapper');
   var isRest=mode==='rest';
+  var isCert=mode==='cert';
   if(restSec)restSec.style.display=isRest?'block':'none';
   if(certSec)certSec.style.display=isRest?'none':'block';
-  // Auto-set port if user hasn't changed it manually
+  if(certWrap)certWrap.style.display=isCert?'block':'none';
+  // Auto-set port
   var portEl=document.getElementById('tak_port');
   if(portEl){
     if(mode==='rest'&&(portEl.value==='8089'||portEl.value==='8087'))portEl.value='8443';
