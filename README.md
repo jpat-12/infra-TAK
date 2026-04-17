@@ -4,15 +4,52 @@ Team Awareness Kit Infrastructure Management Platform.
 
 One clone. One password. One URL. Manage everything from your browser.
 
-**Latest release: v0.3.2-alpha** — **Guard Dog:** fixes false **TAK LE certificate expiry** emails (`tak-cert-watch.sh` now uses the real keystore alias). **After upgrading the console, click ↻ Update Guard Dog** so `/opt/tak-guarddog/` scripts match the release. See [docs/RELEASE-v0.3.2-alpha.md](docs/RELEASE-v0.3.2-alpha.md). Prior: [v0.3.1-alpha](docs/RELEASE-v0.3.1-alpha.md) (two-server DB migration).
+**Latest release: v0.6.2-alpha** — **Node-RED DataSync operator end-state:** no static example feeds in shipped flows (`FEEDS` empty); feeds only via **Configurator** (ArcGIS / FAA TFR). **Console Node-RED deploy** mounts `/opt/tak/certs/files` → `/certs`, adds `host.docker.internal`, runs **`nodered/deploy.sh`** on first deploy; **post-update** patches existing compose + flow sync. Operators: **TAK Mission API TLS** in the Node-RED editor → admin cert paths + **key passphrase** → **Deploy**. Stable ArcGIS hashing; TLS defaults not hardcoded in git. See **[docs/RELEASE-v0.6.2-alpha.md](docs/RELEASE-v0.6.2-alpha.md)**. Prior: [v0.6.1-alpha](docs/RELEASE-v0.6.1-alpha.md), [v0.6.0-alpha](docs/RELEASE-v0.6.0-alpha.md), [v0.5.9-alpha](docs/RELEASE-v0.5.9-alpha.md), [v0.5.8-alpha](docs/RELEASE-v0.5.8-alpha.md), [v0.5.7-alpha](docs/RELEASE-v0.5.7-alpha.md), [v0.5.6-alpha](docs/RELEASE-v0.5.6-alpha.md), [v0.5.5-alpha](docs/RELEASE-v0.5.5-alpha.md), [v0.5.4-alpha](docs/RELEASE-v0.5.4-alpha.md), [v0.5.3-alpha](docs/RELEASE-v0.5.3-alpha.md), [v0.5.2-alpha](docs/RELEASE-v0.5.2-alpha.md), [v0.5.1-alpha](docs/RELEASE-v0.5.1-alpha.md), [v0.5.0-alpha](docs/RELEASE-v0.5.0-alpha.md), [v0.4.9-alpha](docs/RELEASE-v0.4.9-alpha.md), [v0.4.8-alpha](docs/RELEASE-v0.4.8-alpha.md), [v0.4.7-alpha](docs/RELEASE-v0.4.7-alpha.md), [v0.4.6-alpha](docs/RELEASE-v0.4.6-alpha.md), [v0.4.5-alpha](docs/RELEASE-v0.4.5-alpha.md), [v0.4.4-alpha](docs/RELEASE-v0.4.4-alpha.md), [v0.4.3-alpha](docs/RELEASE-v0.4.3-alpha.md), [v0.4.2-alpha](docs/RELEASE-v0.4.2-alpha.md).
+
+**Something broken?** Wrong sidebar version, **Update Now** error, merge/rebase/tag-clobber messages, or you are not sure the VPS ever pulled the real repo → go to **[Universal recovery (SSH)](#universal-recovery-ssh)** and run the one block there. **Point people at that section**; it is the single source of truth.
 
 **Goal: universal installer.** Currently supported platform: **Ubuntu 22.04 LTS**.
+
+## Universal recovery (SSH)
+
+Use this on the **VPS** when anything below is true:
+
+- **Update Now** failed (including **`would clobber existing tag`**, merge/rebase errors, or a vague git error).
+- The sidebar **VERSION** does not match the **Latest release** line at the top of this README (e.g. stuck on **v0.2.4** while the README says **v0.4.5-alpha**).
+- You are unsure whether **`git remote -v`** points at **`github.com/takwerx/infra-TAK`** (forks, typos, and old mirrors leave **`origin/main`** years behind — **`git fetch origin`** is not safe until **`origin` is fixed**).
+
+This pulls **`main` from the official repo URL** (same as **Quick Start**), checks **`VERSION`**, restarts the service. Your **`.config/`** is not touched.
+
+```bash
+cd $(grep -oP 'WorkingDirectory=\K.*' /etc/systemd/system/takwerx-console.service)
+git fetch https://github.com/takwerx/infra-TAK.git main
+git checkout --force -B main FETCH_HEAD
+grep '^VERSION' app.py
+sudo systemctl restart takwerx-console
+```
+
+**Check:** The **`grep`** line should show **`VERSION = "…"`** matching the current **Latest release** at the top (without the **`v`**, e.g. **`0.6.2-alpha`**). If it still shows an old number, you are in the wrong directory (compare with **`grep WorkingDirectory /etc/systemd/system/takwerx-console.service`**) or the fetch failed (network).
+
+**Fix `origin` once (recommended):** so future **`git fetch origin`** hits upstream:
+
+```bash
+git remote set-url origin https://github.com/takwerx/infra-TAK.git
+```
+
+**No `grep -oP`?** Run **`grep WorkingDirectory /etc/systemd/system/takwerx-console.service`**, **`cd`** to that path, then run the four lines starting with **`git fetch https://github.com/...`** (skip the **`cd`** line).
+
+**Shallow / single-branch clone** (`fetch` errors): [docs/PULL-AND-RESTART.md](docs/PULL-AND-RESTART.md).
+
+**After the console is up:** If **Guard Dog** is installed, open **Guard Dog** and click **↻ Update Guard Dog** once (see **Guard Dog** note under **Quick Start**).
+
+**Why:** Older builds used **`git pull --rebase`** or bulk **`git fetch --tags`**, which break on many field installs. Current **Update Now** (v0.4.1+) is safer, but recovery over SSH must **not** trust a wrong **`origin`** — always use the **`https://github.com/takwerx/infra-TAK.git`** fetch above.
 
 ## What Is This?
 
 A unified web console for deploying and managing TAK ecosystem infrastructure:
 
 - **TAK Server** — Upload your .deb, configure, deploy, manage CoreConfig — all from the browser
+- **Federation Hub** — Deploy and manage a TAK Server Federation Hub on a remote VPS, with Authentik SSO, certificate management, and Guard Dog monitoring
 - **Authentik** — Identity provider with automated LDAP configuration for TAK Server auth
 - **TAK Portal** — User and certificate management portal with auto-configured Authentik + TAK Server integration
 - **Caddy SSL** — Let's Encrypt certificates and reverse proxy management
@@ -20,7 +57,7 @@ A unified web console for deploying and managing TAK ecosystem infrastructure:
 - **MediaMTX** — Video streaming server for real-time feeds
 - **Node-RED** — Flow-based automation engine, protected behind Authentik forward auth
 - **Email Relay** — Outbound email for notifications and alerts
-- **Guard Dog** — TAK Server health monitoring and auto-recovery (port 8089, processes, OOM, PostgreSQL, CoT DB size, disk, certificates; optional monitors for Authentik, Node-RED, MediaMTX, CloudTAK)
+- **Guard Dog** — TAK Server health monitoring and auto-recovery (port 8089, processes, OOM, PostgreSQL, CoT DB size, disk, disk I/O performance, certificates; optional monitors for Authentik, Node-RED, MediaMTX, CloudTAK, Federation Hub)
 - **TAK-Esri** — Bidirectional bridge between Survey123, TAK Server, and ArcGIS Online/Enterprise. Polls a Survey123 feature layer, converts to CoT XML (served via Apache for TAK clients to pull) and KML, and pushes TAK CoT logs back to an ArcGIS feature layer every 60 seconds. Full pipeline managed from the browser including Miniconda + ArcGIS SDK install, credential testing, and feature layer creation.
 
 No more SSH. No more editing XML by hand. No more running scripts and hoping.
@@ -30,15 +67,16 @@ No more SSH. No more editing XML by hand. No more running scripts and hoping.
 ```bash
 git clone --depth 1 https://github.com/takwerx/infra-TAK.git
 cd infra-TAK
-chmod +x start.sh
 sudo ./start.sh
 ```
+
+**First boot / automatic updates:** On a new Ubuntu VPS, **`apt`** may run right after SSH is available. **`systemctl status unattended-upgrades`** often shows **active (running)** for **`unattended-upgrade-shutdown`** — that idle process is **normal** and is **not** blocking installs. If **`apt-get`** still reports **“Could not get lock”**, wait until **`sudo fuser /var/lib/dpkg/lock-frontend`** shows nothing, then run **`sudo ./start.sh`** again. **`start.sh`** waits for **real** apt/dpkg activity and for **dpkg/apt lock files** before installing packages.
 
 **Branches:** Default clone uses **main** (stable; tagged releases). For latest features and fixes before they're merged to main, use the **dev** branch: `git clone --depth 1 -b dev https://github.com/takwerx/infra-TAK.git`. The README and changelog here reflect main; dev may include remote deployment, UI tweaks, and fixes not yet in a release.
 
 The script will:
 1. Detect your OS (**Ubuntu 22.04 only** for now; goal is a universal installer)
-2. Install Python dependencies
+2. Wait if automatic updates hold **apt/dpkg**, then install Python dependencies
 3. Ask you to set an admin password
 4. Start the web console
 
@@ -46,7 +84,7 @@ Then open your browser to the URL shown and log in.
 
 **Updating:** After `git pull` or **Update Now**, restart the console with `sudo systemctl restart takwerx-console`. Your password and config live in the install directory's `.config/`. If you run `start.sh` from a different clone or path, the service keeps using the original install directory so your password continues to work.
 
-**Guard Dog — always after a console upgrade:** If **Guard Dog** is installed, open **Guard Dog** and click **↻ Update Guard Dog** every time you upgrade infra-TAK. That **rewrites the watch scripts** under `/opt/tak-guarddog/` from the current repo (certificate monitor, 8089/process/DB/disk/network, optional service monitors, updates check, etc.). Without this, the console is new but **on-disk scripts can stay old**, so fixes and behavior won’t match the release. Also ensures alert and “updates available” emails use your **Email Relay** (v0.2.7-alpha+). Set **Notifications** → alert email and use **Send test email** to verify. Details: [docs/GUARDDOG.md](docs/GUARDDOG.md).
+**Guard Dog — automatic since v0.4.7-alpha:** Guard Dog scripts are automatically re-deployed when the console detects a version change. No manual button press needed after upgrading. The button still exists as a fallback if you change alert email or server nickname. Set **Notifications** → alert email and use **Send test email** to verify. Details: [docs/GUARDDOG.md](docs/GUARDDOG.md).
 
 **Testing Update Now before you ship a release:** Maintainers should follow [docs/TESTING-UPDATES.md](docs/TESTING-UPDATES.md) on a test VPS (fake low `VERSION`, click **Update Now**, then restore). Pushing a Git **tag** is what shows customers “Update Available”; test the button before pushing the tag.
 
@@ -54,19 +92,9 @@ Then open your browser to the URL shown and log in.
 
 **Password not working after update?** Use the **backdoor**: **https://&lt;VPS_IP&gt;:5001**. If login spins or fails, on the server run (from the directory where you do `git pull`, e.g. `/root/infra-TAK`): **`sudo ./fix-console-after-pull.sh`** — it pins the config path in the systemd unit and prompts you to set a new password so you can log in again. Alternatively run `sudo ./reset-console-password.sh` from that same directory. After pulling, open the Caddy module and re-save your domain once so the Caddyfile (login bypass) is applied.
 
-## Update stuck? (rebase / merge conflict)
-
-If you clicked **Update Now** and the console shows an error like `could not apply ... Add files via upload`, `Pulling is not possible because you have unmerged files`, or any rebase/merge conflict message, run this single command on your server:
-
-```bash
-cd $(grep -oP 'WorkingDirectory=\K.*' /etc/systemd/system/takwerx-console.service) && git fetch --tags origin && git checkout --force v0.3.1-alpha && sudo systemctl restart takwerx-console
-```
-
-This clears the stuck state and puts you on a current tag with the safe updater. No data or config is lost — your `.config/` directory is untouched.
-
-**What happened:** Versions v0.2.4 and v0.2.5 used `git pull --rebase` internally, which can fail on installs with non-standard git state. v0.2.6+ uses a safe `fetch + force checkout` that works regardless of local git state.
-
 ## Recovery / backdoor (when Authentik or Caddy is broken)
+
+Git / version / **Update Now** issues: use **[Universal recovery (SSH)](#universal-recovery-ssh)** above, not this section.
 
 If Authentik or Caddy is down and you can't reach **https://infratak.yourdomain.com**:
 
@@ -135,9 +163,34 @@ After deployment, create users in TAK Portal — they flow through Authentik →
 - **Root access**
 - **RAM:** 8 GB+ recommended for TAK Server; more if you run the full stack (Authentik, TAK Portal, Node-RED, MediaMTX, CloudTAK, Guard Dog).
 - **Disk:** At max deployment (all modules) you can sit around **26 GB** used. Plan for growth: CoT data, logs, and retention. **50 GB+** disk is recommended so you have headroom; TAK Server's own minimum is 40 GB per the official configuration guide. Apply Docker log limits (Guard Dog → Apply Docker log limits) to avoid containers filling the disk.
+- **Disk I/O:** SSD-backed storage strongly recommended. **Test your VPS before deploying** — slow disk I/O causes Docker build timeouts, service startup failures, and unreliable boots. See [VPS disk I/O check](#vps-disk-io-check) below.
 - **CPU:** Enough cores for all processes (TAK Server, PostgreSQL, Authentik, Caddy, Node-RED, etc.). TAK Server's minimum is 4 cores; more is better for the full stack.
 - **Internet** connection for initial setup.
 - **TAK Server .deb** package from [tak.gov](https://tak.gov).
+
+### VPS disk I/O check
+
+Run this on your VPS **before deploying**. Poor disk I/O is the #1 cause of slow deploys and unreliable service startups.
+
+```bash
+# Write speed (sequential, sync)
+dd if=/dev/zero of=/tmp/testfile bs=1M count=1024 oflag=dsync 2>&1 | tail -1
+
+# Read speed
+dd if=/tmp/testfile of=/dev/null bs=1M 2>&1 | tail -1
+
+# Clean up
+rm -f /tmp/testfile
+```
+
+| Write speed | Assessment |
+|-------------|------------|
+| **400+ MB/s** | Good — SSD-backed, full stack will deploy and boot quickly |
+| **200–400 MB/s** | Acceptable — deploys work, boot may be slightly slower |
+| **< 200 MB/s** | Poor — expect slow Docker builds, service timeouts, longer boot sequences |
+| **< 100 MB/s** | Bad — likely throttled or HDD-backed; migrate to a different node or provider |
+
+Some VPS providers place instances on overloaded or HDD-backed storage nodes. If your write speed is consistently under 200 MB/s, contact your provider about migrating to a different node before troubleshooting service issues. The difference between a bad node and a good one can be 50 MB/s vs 500 MB/s on the same provider.
 
 ## Architecture
 
@@ -181,16 +234,74 @@ start.sh                          ← One CLI command to launch everything
 
 ## Ports
 
-| Service | Port | Description |
-|---------|------|-------------|
-| TAK-infra Console | 5001 | Management web UI |
-| TAK Server | 8089 | TAK client connections (TLS) |
-| TAK Server | 8443 | WebGUI (cert auth) |
-| TAK Server | 8446 | WebGUI (Let's Encrypt, password auth) |
-| Authentik | 9090 | Identity provider |
-| LDAP | 389 | LDAP auth for TAK Server |
-| TAK Portal | 3000 | User management portal |
-| Apache (TAK-Esri) | 80 | Serves survey-cot.txt and survey123.kml for TAK clients |
+| Service | Port | Protocol | Description |
+|---------|------|----------|-------------|
+| infra-TAK Console | 5001 | HTTPS | Management web UI (backdoor: direct IP access) |
+| Caddy | 80 | HTTP | Redirect to HTTPS |
+| Caddy | 443 | HTTPS | Reverse proxy for all services (Let's Encrypt) |
+| TAK Server | 8089 | TLS | TAK client connections (ATAK, iTAK, WinTAK) |
+| TAK Server | 8443 | HTTPS | Admin WebGUI (client certificate auth) |
+| TAK Server | 8446 | HTTPS | Admin WebGUI (Let's Encrypt, password/LDAP auth) |
+| TAK Server | 8087 | TCP | Disabled by default (plaintext, replaced by 8089) |
+| PostgreSQL | 5432 | TCP | TAK Server database (localhost or remote for two-server) |
+| Authentik | 9090 | HTTP | Identity provider API + admin UI (proxied via Caddy) |
+| Authentik | 9443 | HTTPS | Authentik HTTPS (direct, rarely needed) |
+| LDAP Outpost | 389 | TCP | LDAP auth for TAK Server (Authentik outpost) |
+| LDAP Outpost | 636 | TCP | LDAPS (TLS-wrapped LDAP) |
+| TAK Portal | 3000 | HTTP | User/cert management portal (proxied via Caddy) |
+| Email Relay | 25 | SMTP | Local Postfix relay (localhost only, apps send here) |
+| Node-RED | 1880 | HTTP | Flow editor (proxied via Caddy) |
+| MediaMTX | 8554 | RTSP | Video streaming (RTSP) |
+| MediaMTX | 8889 | HTTP | WebRTC / HLS playback |
+| MediaMTX | 5080 | HTTP | MediaMTX web editor |
+| CloudTAK | 5000 | HTTP | Browser-based TAK client (proxied via Caddy) |
+| Apache (TAK-Esri) | 80 | HTTP | Serves survey-cot.txt and survey123.kml for TAK clients |
+
+## Actions Reference (Sync, Update Config, Resync)
+
+Each page has buttons that do specific things. Here's what they do and when to use them.
+
+### TAK Server Page
+
+| Button | What it does | When to use it |
+|--------|-------------|----------------|
+| **Update Config** | Regenerates Caddyfile, reloads Caddy, installs Let's Encrypt cert on 8446, restarts TAK Server | After changing the TAK Server domain/FQDN in Caddy settings |
+| **Connect TAK Server to LDAP** | Full LDAP setup: repairs Authentik blueprint, ensures service account + webadmin, writes LDAP auth block into CoreConfig.xml (without flat-file), restarts TAK Server | After deploying Authentik (if TAK Server was deployed first), or if LDAP auth stops working |
+| **Resync LDAP to TAK Server** | Same as Connect LDAP — full re-run of the LDAP fix flow | If QR registration fails, if 8446 login stops working, after pulling console updates |
+| **Sync webadmin to Authentik** | Pushes the 8446 webadmin password from settings into Authentik (no TAK Server restart) | After changing the webadmin password |
+| **Disable/Enable flat-file auth** | Adds or removes `UserAuthenticationFile.xml` from the CoreConfig auth block, restarts TAK Server | When you want LDAP-only auth (disable) or need local password fallback (enable) |
+| **Set JVM Heap** | Writes `-Xms`/`-Xmx` to `/opt/tak/setenv.sh`, restarts TAK Server | TAK Server running out of memory (OutOfMemoryError in logs) |
+
+### TAK Portal Page
+
+| Button | What it does | When to use it |
+|--------|-------------|----------------|
+| **Sync TAK Server to TAK Portal** | Forces TAK Portal to re-read the TAK Server connection (IP, certs, API URL) | If TAK Portal dashboard doesn't show TAK Server uptime/disk usage |
+| **Update Config** | Rewrites TAK Portal's `settings.json` with current Authentik + TAK Server URLs, restarts the container | After changing FQDN, after Authentik redeploy, if TAK Portal can't reach TAK Server or Authentik |
+| **Sync TAK Server CA** | Copies the current `tak-ca.pem` into the TAK Portal container | After CA rotation — TAK Portal needs the new CA to generate valid client certs |
+
+### Authentik Page
+
+| Button | What it does | When to use it |
+|--------|-------------|----------------|
+| **Update Config & Reconnect** | Patches docker-compose.yml (PostgreSQL tuning, blueprint mounts), ensures all forward auth apps exist (infra-TAK, TAK Portal, Node-RED, etc.), repairs embedded outpost, updates LDAP CoreConfig, reloads Caddy | After pulling console updates, if forward auth breaks, if apps disappear from Authentik, if LDAP stops working |
+| **Fix LDAP Token** | Re-fetches the LDAP outpost token from Authentik API and injects it into docker-compose.yml, restarts the LDAP container | If LDAP container shows "unhealthy" or "403 Forbidden" in logs |
+
+### Email Relay Page
+
+| Button | What it does | When to use it |
+|--------|-------------|----------------|
+| **Switch Provider** | Reconfigures Postfix with new SMTP credentials/host, restarts Postfix | Changing email provider or From address |
+| **Configure Authentik** | Pushes relay settings (localhost:25, From address) into Authentik so password recovery emails work | After deploying or switching Email Relay provider |
+
+### General Rules
+
+- **Deploy order matters:** Caddy → Authentik → Email Relay → TAK Server → TAK Portal → everything else
+- **After pulling console updates:** Hit "Update Config" on Authentik, then optionally on TAK Server if you changed FQDN
+- **If TAK Portal can't reach TAK Server:** Hit "Sync TAK Server to TAK Portal" on the TAK Portal page
+- **If LDAP auth breaks:** Hit "Connect TAK Server to LDAP" on the TAK Server page
+- **If forward auth breaks (502/blank on FQDN URLs):** Hit "Update Config" on the Authentik page
+- **After CA rotation:** Hit "Sync TAK Server CA" on the TAK Portal page, then have users re-enroll
 
 ## Access Modes
 
@@ -224,20 +335,121 @@ start.sh                          ← One CLI command to launch everything
 
 ## Changelog
 
+### v0.6.2-alpha — 2026-04-16
+
+**Node-RED DataSync — enterprise operator path**
+- Shipped **`flows.json`** has **no** static example ArcGIS feeds (`FEEDS` empty in `build-flows.js`). Feeds are created only in the **Configurator** (dynamic tabs; `deploy.sh` merge + template sync preserves them).
+- **Console** Node-RED **docker-compose** mounts **`/opt/tak/certs/files:/certs:ro`**, **`extra_hosts: host.docker.internal:host-gateway`**; **first deploy** runs **`nodered/deploy.sh --no-pull`**. **Post-update** patches existing compose if needed and syncs flows.
+- **TLS:** `tls_tak` does not ship hardcoded cert paths in git; **`deploy.sh`** fills **`/certs/admin.pem`** when present on host. Operators enter the **private key passphrase** in the Node-RED editor and **Deploy**.
+- **ArcGIS:** stable feature hashing (geometry + mapped fields); recommend **IncidentId** (or **GlobalID**) instead of **OBJECTID** for feeds where IDs fluctuate.
+- **Configurator** copy explains TAK TLS + passphrase step.
+
+Full notes: [docs/RELEASE-v0.6.2-alpha.md](docs/RELEASE-v0.6.2-alpha.md). Node-RED detail: [nodered/CHANGELOG-nodered-v0.6.0-alpha.md](nodered/CHANGELOG-nodered-v0.6.0-alpha.md).
+
+---
+
+### v0.6.1-alpha — 2026-04-16
+
+**Patch release** — version bump to ensure all boxes (including those that fetched the original v0.6.0-alpha tag) receive the disk I/O monitor fix via Update Now. No functional changes beyond the version string.
+
+---
+
+### v0.6.0-alpha — 2026-04-16
+
+**Guard Dog — Disk I/O Performance Monitor**
+- Automated 15-minute `dd` benchmarks logged to CSV (30-day retention). Alerts when last-hour average drops below 50 MB/s or falls 70%+ from the 24h rolling average (noisy-neighbor detection). Email + SMS via Guard Dog alert pipeline.
+- Dashboard card with color-coded stats (current, 1h avg, 24h avg, min/max), interactive sparkline chart with warning threshold line, time range dropdown (24h–30d), and CSV report download. Chart timestamps in user's local timezone.
+- Auto-deploys with Guard Dog — `takdiskioguard.timer` created and enabled alongside existing monitors.
+
+**VPS memory stability — swappiness tuning**
+- Guard Dog deploy sets `vm.swappiness=10` (persistent + immediate). Prevents aggressive swapping on VPS with slow disk I/O, which was the #1 cause of "struggling" servers with plenty of free RAM.
+
+**Postfix installation fix**
+- `debconf-set-selections` preseeds `postfix/mailname` and `postfix/main_mailer_type` before install. Fixes `meter mydomain: bad parameter value: 0` failure on some systems.
+
+**Node-RED — ArcGIS DataSync & FAA TFR Configurator (new)**
+- Stream ArcGIS Feature Service data (wildfire perimeters, weather alerts, infrastructure, custom layers) and FAA Temporary Flight Restrictions into TAK Server missions as live CoT objects.
+- Web-based configurator UI inside Node-RED — no flow editing required. Add feeds, pick fields, set poll intervals, click Deploy.
+- Access at `https://nodered.<your-fqdn>` → Configurator tab.
+- Non-destructive updates: user flows, feed configs, TLS, TCP settings, and credentials all survive `deploy.sh` runs. Template sync auto-updates function code in existing tabs.
+- Ships with cold-start guards (no post-restart churn), stable ArcGIS hashing, FAA TFR ID fix, and per-feed label/capitalize options.
+
+Full notes: [docs/RELEASE-v0.6.0-alpha.md](docs/RELEASE-v0.6.0-alpha.md).
+
+---
+
+### v0.5.9-alpha — 2026-04-10
+
+**Boot sequence hardening — cold reboot to full stack in under 5 minutes**
+- **Guard Dog Boot Sequencer** stops all Docker containers on boot so TAK Server gets exclusive CPU during its ~100s Java initialization. Nothing else starts until port 8089 is listening.
+- **Authentik staggered start** — PostgreSQL starts first, waits for `pg_isready`, then server/worker/LDAP come up in order. Eliminates "too many clients already" connection storms.
+- **PostgreSQL tuning (idempotent)** — `max_connections=300`, idle session timeouts, TCP keepalives baked into compose. New `_ensure_authentik_compose_patches()` helper runs on every deploy/reconfigure/update so tuning can never silently disappear after upgrades.
+- **Priority service ordering** — TAK Server → Authentik → TAK Portal (critical trio, under 3 min). CloudTAK and Node-RED get 30s stagger delays to prevent Docker iptables churn from disrupting active TAK client connections.
+- **Tested cold boot:** TAK Server ready ~100s, Authentik healthy +54s, TAK Portal +12s, full stack ~4:42. Zero PG errors, zero LDAP 502s, LDAP binds under 1ms.
+
+Full notes: [docs/RELEASE-v0.5.9-alpha.md](docs/RELEASE-v0.5.9-alpha.md).
+
+---
+
+### v0.4.7-alpha — 2026-04-08
+
+**Auto-deploy on update** — Guard Dog, Authentik, TAK Portal, and CloudTAK configs are all automatically re-deployed when a version change is detected. No manual button presses after console updates. Authentik, TAK Portal, and CloudTAK run in parallel. Console cards show "Updating config..." while each service reconfigures. TAK Server and other services stay running throughout.
+
+**Online database repack (pg_repack)** — new weekly Guard Dog script reclaims actual disk space from the CoT database without downtime. Runs Sunday 4 AM, auto-installs pg_repack, works in both local and two-server mode.
+
+**Boot sequencer — two-server fix** — `tak-boot-sequencer.sh` no longer hangs for 2 minutes on two-server setups trying to reach a local PostgreSQL that doesn't exist. Detects remote DB from `guarddog.conf` or `CoreConfig.xml` and checks via TCP, completing instantly.
+
+**TAK Portal Guard Dog monitor** — new container health monitor with alert + auto-restart after 3 failures. Previously TAK Portal had no monitoring — if it crashed, nobody knew.
+
+**Smart Guard Dog UI** — shows "up to date" when config is current; "Update Guard Dog" button only appears when settings have changed.
+
+**CloudTAK security fix** — removed `NODE_TLS_REJECT_UNAUTHORIZED=0` from CloudTAK `.env` and `docker-compose.override.yml` (flagged by CloudTAK developer as security flaw). Applied automatically on upgrade.
+
+**Remote DB monitor fix** — TCP+SSH monitor now correctly shows red when Server One is unreachable (was falsely showing green).
+
+**Guard Dog config drift prevention** — `guarddog.conf` auto-syncs with settings.json on every console startup, preventing stale remote DB IPs after migration.
+
+### v0.4.6-alpha — 2026-04-07
+
+**Staggered boot sequencer — cold reboot to full stack healthy in ~2 minutes**
+- Full boot orchestration: pre-start stops all Docker services and waits for PostgreSQL, then TAK Server starts with exclusive CPU. Post-start waits for port 8089, then brings up Authentik (waits for healthy + LDAP 389), TAK Portal, CloudTAK, Node-RED, and MediaMTX in order. Only installed services are touched.
+- Auto-restarts TAK messaging if it crashes during cold boot (config ready but messaging process died).
+- Tested on fresh 12-core / 48 GB VPS (316 MB/s disk): pre-start 15s, TAK Server 9s, full stack healthy in ~2 min 15s.
+
+**Authentik deployment resilience**
+- TLS cert readiness gate: waits up to 300s for Caddy to provision a valid cert on the Authentik FQDN before restarting the LDAP outpost.
+- LDAP port 389 readiness gate: waits up to 180s for the LDAP container to be listening before running bind verification.
+- Improved LDAP bind verification: 24 attempts / 10s delay (was 12/5s). Log parsing prioritizes success markers over stale errors.
+- Docker healthcheck `start_period` extended to 600s for Authentik server and worker (accommodates slow first-run migrations).
+
+**Guard Dog — boot-loop prevention**
+- Service-age grace (10 min), daily restart cap (3/day shared counter), clean restart (stop → kill orphans → clear Ignite → start).
+- Timer delays increased to 20 min after boot.
+
+**Certificate password fix**
+- Custom cert passwords now correctly applied to all JKS files during TAK Server deploy and CA rotation.
+- Default password (`atakatak`) deployments were never affected.
+
+**TAK Portal — SSH auto-configuration**
+- On deploy, reconfigure, or update: generates an ed25519 keypair, installs the public key in the host's `authorized_keys`, copies the keypair into the TAK Portal container, and populates all `TAK_SSH_*` settings. No manual handshake needed.
+
+**VPS disk I/O check in installer**
+- `start.sh` now runs a 256 MB write test on first boot and prints a colored speed assessment (excellent / acceptable / slow) with guidance if performance is poor.
+
+Full notes: [docs/RELEASE-v0.4.6-alpha.md](docs/RELEASE-v0.4.6-alpha.md).
+
+---
+
 ### v0.3.3-alpha — 2026-03-31
 
 **TAK-Esri Integration module**
 - New **TAK-Esri** module — full bidirectional bridge between Survey123, TAK Server, and ArcGIS Online/Enterprise, managed entirely from the web console.
 - **Pipeline services** (`csv-download`, `csv-cot`, `csv-kml`, `cot-csv`) deployed as systemd units to `/opt/TAK-Esri/`. All scripts bundled at `modules/tak_esri/python/`.
 - **Deploy tab** — one-click install: installs `python3-geopandas`, `apache2`, deploys scripts, generates `csv-download.py` from the saved Survey123 URL, and enables all four services. Live streaming deploy log.
-- **ArcGIS Setup tab** — guided 4-step wizard fully automated from the browser:
-  - Step 1: Install Miniconda to `/root/miniconda/`, create `arcgis_env` (Python 3.9), install ArcGIS SDK via `conda install -c esri arcgis` (pip fallback). Live streaming log.
-  - Step 2: Test ArcGIS credentials — runs `sign-in.py` inside `arcgis_env`, prints username on success.
-  - Step 3: Create ArcGIS feature layer — runs `push.py`, captures the layer ID from stdout, auto-saves to config, and pre-fills the Feature Layer ID field. No copy-paste required.
-  - Step 4: Start/stop/restart `arcgis-append.service` — systemd unit running `append.py` inside `conda run`, overwriting the feature layer every 60 seconds.
+- **ArcGIS Setup tab** — guided 4-step wizard fully automated from the browser.
 - **Services tab** — per-service status badges and start/stop/restart controls for all four pipeline services.
-- **Config tab** — Survey123 Feature Layer URL and ArcGIS credentials (enterprise URL, username, password, feature layer ID) saved to `settings.json`.
-- **CoT archive** (`copy-cot-intake.py`) — archives `cot-logged.txt` as a compressed `.zip` (ZIP_DEFLATED), organised by UTC date folder. Automatically purges archive folders older than two days.
+- **Config tab** — Survey123 Feature Layer URL and ArcGIS credentials saved to `settings.json`.
+- **CoT archive** (`copy-cot-intake.py`) — archives `cot-logged.txt` as a compressed `.zip`, organised by UTC date folder. Automatically purges archive folders older than two days.
 - **Uninstall** — password-gated; stops and removes all services and deletes `/opt/TAK-Esri/`. Apache and `/var/www/html/` output files are left intact.
 
 ---

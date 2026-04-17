@@ -1,5 +1,7 @@
 # Pull and restart on VPS
 
+**Broken version / Update Now / git errors:** use one place — [README → Universal recovery (SSH)](../README.md#universal-recovery-ssh) (copy-paste block). This doc adds **dev**/**main**-by-branch steps and **shallow-clone** fixes.
+
 Run each command separately (one line at a time). Do not combine commands.
 
 ## Find the correct directory first
@@ -15,33 +17,38 @@ Use whatever path that returns. Example output:
 WorkingDirectory=/root/infra-TAK/infra-TAK
 ```
 
-## Simple dev pull (separate commands)
+## Pull latest dev and restart
 
 ```bash
 cd $(grep -oP 'WorkingDirectory=\K.*' /etc/systemd/system/takwerx-console.service)
-git pull origin dev
+git fetch origin dev
+git checkout -B dev origin/dev
 sudo systemctl restart takwerx-console
 ```
 
-## Dev branch (explicit flow)
+## Pull latest main (stable) and restart
+
+Prefer fetching **canonical** **`main`** (official repo). **`git fetch origin main`** only works if **`git remote -v`** points at **`takwerx/infra-TAK`**; otherwise **`origin/main`** can stay years out of date.
 
 ```bash
 cd $(grep -oP 'WorkingDirectory=\K.*' /etc/systemd/system/takwerx-console.service)
-git fetch origin
-git checkout dev
-git pull --ff-only origin dev
+git fetch https://github.com/takwerx/infra-TAK.git main
+git checkout --force -B main FETCH_HEAD
+grep '^VERSION' app.py
 sudo systemctl restart takwerx-console
 ```
 
-## Main branch (stable)
+If **`origin`** is already correct, **`git fetch origin main`** and **`git checkout -B main origin/main`** is equivalent.
+
+## Shallow clone fix (one-time)
+
+If `git fetch` fails with `'origin/dev' is not a commit`, run this once:
 
 ```bash
-cd $(grep -oP 'WorkingDirectory=\K.*' /etc/systemd/system/takwerx-console.service)
-git fetch origin
-git checkout main
-git pull --ff-only origin main
-sudo systemctl restart takwerx-console
+git remote set-branches origin '*'
 ```
+
+Then retry the pull commands above. This only happens on VPS installs that used `--depth 1`.
 
 ## Upgrading to v0.2.0+
 

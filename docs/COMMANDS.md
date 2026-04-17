@@ -5,7 +5,6 @@
 ```bash
 git clone --depth 1 -b dev https://github.com/takwerx/infra-TAK.git
 cd infra-TAK
-chmod +x start.sh
 sudo ./start.sh
 ```
 
@@ -380,7 +379,7 @@ If (4) shows nothing when you trigger a reset, Authentik isn't reaching Postfix.
 ## Pull dev branch only
 
 ```bash
-cd ~/infra-TAK && git fetch origin dev && git checkout dev && git pull origin dev
+cd ~/infra-TAK && git remote set-branches origin '*' && git fetch origin --tags && git checkout -B dev origin/dev
 ```
 
 *(If your repo lives elsewhere, use that path instead of `~/infra-TAK`, e.g. `~/tak-infra`.)*
@@ -710,7 +709,7 @@ cd /path/to/infra-TAK && chmod +x pull-dev-and-restart.sh && ./pull-dev-and-rest
 **Or run the steps manually:**
 
 ```bash
-cd ~/infra-TAK && git fetch origin dev && git checkout dev && git pull origin dev
+cd ~/infra-TAK && git remote set-branches origin '*' && git fetch origin --tags && git checkout -B dev origin/dev
 ```
 
 ```bash
@@ -725,20 +724,21 @@ sudo systemctl restart takwerx-console
 
 When you want to release a version but **not** put internal/reference files on `main` (no HANDOFF, PROMPT, testing notes, retention PDFs, etc.), merge only the files users need to run, update, or start fresh. Run from repo root (e.g. `~/infra-TAK`).
 
-**Included on main:** app, overlay, start/scripts, static, modules, Guard Dog scripts, user-facing docs (README, COMMANDS, GUARDDOG, DISK-AND-LOGS, MEDIAMTX-TAKPORTAL-ACCESS, WORKFLOW-8446-WEBADMIN, REFERENCES, email template, OpenAPI spec), **docs/TESTING-UPDATES.md** (maintainer pre-release protocol), and **only the latest** release doc (e.g. `docs/RELEASE-v0.3.2-alpha.md` — change each release). Past release notes are on the GitHub Releases tab.
+**Included on main:** app, overlay, start/scripts, static, modules, Guard Dog scripts, user-facing docs (README, COMMANDS, GUARDDOG, DISK-AND-LOGS, MEDIAMTX-TAKPORTAL-ACCESS, WORKFLOW-8446-WEBADMIN, REFERENCES, FED-HUB, FEDHUB-LOGIN-RUNBOOK, email template, OpenAPI spec), **docs/TESTING-UPDATES.md** (maintainer pre-release protocol), and **only the latest** release doc (e.g. `docs/RELEASE-v0.4.5-alpha.md` — change each release). Past release notes are on the GitHub Releases tab.
 
-**Excluded from main:** older `docs/RELEASE-*.md` (only the current release is copied), `docs/HANDOFF-LDAP-AUTHENTIK.md`, `docs/PROMPT-update-handoff.txt`, `docs/TAK-Data-Retention-notes.md`, `docs/TAK_Server_Configuration_Guide.pdf`, `docs/TAK-Data-Retention-Tool.pdf`, `TESTING.md`, `scripts/ldap-diagnose-and-fix.sh` (and any other internal-only files you add to dev).
+**Excluded from main:** older `docs/RELEASE-*.md` (only the current release is copied), `docs/HANDOFF-LDAP-AUTHENTIK.md`, `docs/PROMPT-update-handoff.txt`, `docs/TAK-Data-Retention-notes.md`, `docs/TAK_Server_Configuration_Guide.pdf`, `docs/TAK-Data-Retention-Tool.pdf`, `docs/TAK_Server_Mission_API.pdf`, `docs/NODERED-DEPLOY.md` (internal until promoted), `docs/GIS-TAK-DATASYNC-HANDOFF.md` (maintainer handoff — keep `main`’s version unless you intentionally replace it), `TESTING.md`, `scripts/ldap-diagnose-and-fix.sh` (and any other internal-only files you add to dev).
 
-**Order:** Update `dev` first so the files you copy to `main` are current. Then switch to `main`, pull, copy the listed paths from (local) `dev`, commit, push, and switch back to `dev`.
+**Do not** run `git merge dev` into `main` — that copies **everything** (PDFs, handoffs, session notes). Use **`git checkout dev -- <paths>`** only, as below.
+
+**Order:** Sync local `dev` and `main` exactly to `origin` first (avoids divergent-branch pull errors), then copy the listed paths from `dev`, commit, push, and switch back to `dev`.
 
 ```bash
-# 1) Ensure dev has the latest (so the copy to main is current)
-git checkout dev
-git pull origin dev
+# 1) Sync local branches to remote (clean deterministic base)
+git fetch origin --tags
+git checkout -B dev origin/dev
 
-# 2) Switch to main, update it, then copy selected files from dev
-git checkout main
-git pull origin main
+# 2) Switch to main, sync it, then copy selected files from dev
+git checkout -B main origin/main
 git checkout dev -- \
   app.py \
   mediamtx_ldap_overlay.py \
@@ -746,13 +746,15 @@ git checkout dev -- \
   fix-console-after-pull.sh \
   reset-console-password.sh \
   .gitignore \
+  .cursorrules \
   static/ \
   modules/ \
+  nodered/ \
   scripts/set-docker-log-limits.sh \
   scripts/guarddog/ \
   README.md \
   docs/COMMANDS.md \
-  docs/RELEASE-v0.3.2-alpha.md \
+  docs/RELEASE-v0.6.2-alpha.md \
   docs/TESTING-UPDATES.md \
   docs/GUARDDOG.md \
   docs/DISK-AND-LOGS.md \
@@ -763,16 +765,33 @@ git checkout dev -- \
   docs/HLS-FIX-CLIENT-VS-SERVER.md \
   docs/PULL-AND-RESTART.md \
   docs/AUTHENTIK-LOGIN-BRANDING.md \
+  docs/FED-HUB.md \
+  docs/FEDHUB-LOGIN-RUNBOOK.md \
   docs/email-template-user-created-without-password.html \
   docs/TAK_Server_OpenAPI_v0.json
 git add -A && git status
-git commit -m "v0.3.2-alpha"
+python3 - <<'PY'
+import re, sys
+tag = "v0.6.2-alpha"  # change each release
+want = tag.lstrip("v")
+app = open("app.py", encoding="utf-8").read()
+m = re.search(r'^VERSION\s*=\s*"([^"]+)"', app, re.M)
+if not m:
+    print("ERROR: VERSION not found in app.py")
+    sys.exit(1)
+got = m.group(1)
+if got != want:
+    print(f"ERROR: app.py VERSION is {got}, expected {want} for tag {tag}")
+    sys.exit(1)
+print(f"OK: app.py VERSION matches tag ({tag})")
+PY
+git commit -m "v0.6.2-alpha"
 git push origin main
-git tag v0.3.2-alpha && git push origin v0.3.2-alpha
+git tag v0.6.2-alpha && git push origin v0.6.2-alpha
 git checkout dev
 ```
 
-**Note:** If a file doesn’t exist on dev (e.g. you removed `scripts/fix-mediamtx-stream-redirect.sh`), drop that line from the `git checkout dev --` list. For a new release, change the release doc (e.g. `docs/RELEASE-v0.3.2-alpha.md` → next release), the commit message, and the tag; then run the tag push.
+**Note:** If a file doesn’t exist on dev (e.g. you removed `scripts/fix-mediamtx-stream-redirect.sh`), drop that line from the `git checkout dev --` list. For a new release, change the release doc (e.g. `docs/RELEASE-v0.3.2-alpha.md` → next release), the commit message, and the tag; then run the tag push. Keep the Python check in the block and update the `tag = "..."` line each release — it prevents update-loop bugs caused by VERSION/tag mismatch.
 
 ---
 
