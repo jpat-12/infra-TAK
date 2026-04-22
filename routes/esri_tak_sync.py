@@ -482,7 +482,7 @@ def esri_tak_sync_save_config():
     data = request.get_json(silent=True) or {}
     cfg  = _esri_tak_sync_load_config()
     for key in ['tak_host', 'tak_port', 'tak_auth_mode', 'tak_username', 'tak_password',
-                'tak_cert_name', 'tak_group', 'cert_file', 'key_file',
+                'tak_cert_name', 'tak_group', 'cert_file', 'key_file', 'output_file',
                 'layer_url', 'layer_public', 'layer_type', 'esri_username',
                 'esri_password', 'portal_url', 'poll_interval', 'page_size',
                 'lat_field', 'lon_field', 'uid_field', 'uid_prefix',
@@ -507,8 +507,9 @@ def esri_tak_sync_save_config():
             if cfg.get('tak_auth_mode'):  ts['auth_mode'] = cfg['tak_auth_mode'].strip()
             if 'tak_username' in cfg:     ts['username']  = cfg['tak_username']
             if 'tak_password' in cfg:     ts['password']  = cfg['tak_password']
-            if 'cert_file' in cfg:        ts['cert_file'] = cfg['cert_file']
-            if 'key_file'  in cfg:        ts['key_file']  = cfg['key_file']
+            if 'cert_file'   in cfg:      ts['cert_file']    = cfg['cert_file']
+            if 'key_file'    in cfg:      ts['key_file']     = cfg['key_file']
+            if 'output_file' in cfg:      ts['output_file']  = cfg['output_file']
             if cfg.get('layer_url'):     fl['url']  = cfg['layer_url'].strip()
             if cfg.get('layer_type'):    fl['layer_type'] = cfg['layer_type'].strip()
             if 'layer_public' in cfg:    fl['public'] = bool(cfg['layer_public'])
@@ -973,6 +974,7 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:'DM Sans',s
           <option value="plain"       {% if cfg.get('tak_auth_mode')=='plain'              %}selected{% endif %}>Plain TCP (port 8087)</option>
           <option value="rest"        {% if cfg.get('tak_auth_mode')=='rest'               %}selected{% endif %}>REST / User+Pass + cert (port 8443)</option>
           <option value="authentik"   {% if cfg.get('tak_auth_mode')=='authentik'          %}selected{% endif %}>Authentik / LDAP — user+pass (port 8443)</option>
+          <option value="file"        {% if cfg.get('tak_auth_mode')=='file'               %}selected{% endif %}>File — write CoT to text file (no TAK Server)</option>
         </select>
       </div>
 
@@ -1019,6 +1021,15 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:'DM Sans',s
           </div>
         </div>
         <p class="hint">TLS connection to port 8089 using PEM cert+key directly — server cert verification is disabled (matches Node-RED flow). The cert files are generated automatically when you use the cert setup below.</p>
+      </div>
+
+      <!-- File output mode -->
+      <div id="file-output-section" style="display:{% if cfg.get('tak_auth_mode')=='file' %}block{% else %}none{% endif %}">
+        <div class="form-group">
+          <label class="form-label">Output File Path</label>
+          <input type="text" id="output_file" class="form-input" value="{{ cfg.get('output_file','/opt/Esri-TAKServer-Sync/cot_output.txt') }}" placeholder="/opt/Esri-TAKServer-Sync/cot_output.txt">
+          <p class="hint">Each poll cycle overwrites this file with one CoT XML message per line. No TAK Server connection is made.</p>
+        </div>
       </div>
 
       <!-- TLS cert generation — shown only when TLS/Cert or TLS Keypair mode is selected -->
@@ -1744,10 +1755,12 @@ function toggleAuthMode(){
   var restSec=document.getElementById('rest-auth-section');
   var authSec=document.getElementById('authentik-auth-section');
   var tlsKpSec=document.getElementById('tls-keypair-section');
+  var fileSec=document.getElementById('file-output-section');
   var certGen=document.getElementById('cert-gen-section');
   if(restSec)restSec.style.display=mode==='rest'?'block':'none';
   if(authSec)authSec.style.display=mode==='authentik'?'block':'none';
   if(tlsKpSec)tlsKpSec.style.display=mode==='tls_keypair'?'block':'none';
+  if(fileSec)fileSec.style.display=mode==='file'?'block':'none';
   if(certGen)certGen.style.display=(mode==='cert'||mode==='tls_keypair')?'block':'none';
   var portEl=document.getElementById('tak_port');
   if(portEl){
@@ -1771,6 +1784,7 @@ function saveConfig(){
     tak_password:(document.getElementById('tak_password')||{value:''}).value,
     cert_file:(document.getElementById('cert_file')||{value:''}).value.trim(),
     key_file:(document.getElementById('key_file')||{value:''}).value.trim(),
+    output_file:(document.getElementById('output_file')||{value:'/opt/Esri-TAKServer-Sync/cot_output.txt'}).value.trim(),
     layer_url:document.getElementById('layer_url').value,
     layer_public:document.getElementById('layer_public').value==='1',
     layer_type:document.getElementById('layer_type').value,

@@ -377,6 +377,7 @@ _AUTH_MODE_DEFAULT_PORTS = {
     "plain":       8087,   # Plain TCP, no certificate
     "rest":        8443,   # HTTPS REST API with Basic Auth + client cert
     "authentik":   8443,   # HTTPS REST API with Basic Auth only (Authentik/LDAP user)
+    "file":        0,      # Write CoT to a local text file, one message per line
 }
 
 
@@ -406,12 +407,20 @@ class TAKClient:
         self.ca_cert    = tak.get("ca_cert", "")
         self.cert_file  = tak.get("cert_file", "")   # PEM cert path (tls_keypair mode)
         self.key_file   = tak.get("key_file", "")    # PEM key path  (tls_keypair mode)
+        self.output_file = tak.get("output_file", "/opt/Esri-TAKServer-Sync/cot_output.txt")
         self._sock      = None
         self._session   = None
+        self._file      = None
 
     # ── Connection ────────────────────────────────────────────────────────────
 
     def connect(self):
+        if self.auth_mode == "file":
+            os.makedirs(os.path.dirname(self.output_file), exist_ok=True)
+            self._file = open(self.output_file, "w", encoding="utf-8")
+            log.info("File mode: writing CoT to %s", self.output_file)
+            return
+
         if self.auth_mode == "authentik":
             # Authentik/LDAP: Basic Auth over HTTPS. TAK Server 8443 enforces
             # mutual TLS so a client cert is still required alongside credentials.
@@ -542,6 +551,11 @@ class TAKClient:
 
     def send(self, cot_xml: str):
         """Send one CoT event."""
+        if self.auth_mode == "file":
+            self._file.write(cot_xml + "\n")
+            self._file.flush()
+            return
+
         if self.auth_mode in ("rest", "authentik"):
             url = f"https://{self.host}:{self.port}/Marti/api/cot/xml"
             resp = self._session.post(
@@ -569,6 +583,12 @@ class TAKClient:
     # ── Close ─────────────────────────────────────────────────────────────────
 
     def close(self):
+        if self._file:
+            try:
+                self._file.close()
+            except Exception:
+                pass
+        self._file = None
         if self._sock:
             try:
                 self._sock.close()
