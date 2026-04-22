@@ -78,7 +78,9 @@ def _run_esri_tak_sync_install():
                 "password":      (cfg.get('tak_password') or '').strip(),
                 "cert_path":     os.path.join(ESRI_TAK_SYNC_DIR, 'certs', 'esri-push.p12'),
                 "cert_password": "atakatak",
-                "ca_cert":       ""
+                "ca_cert":       "",
+                "cert_file":     (cfg.get('cert_file') or '').strip(),
+                "key_file":      (cfg.get('key_file') or '').strip()
             },
             "feature_layer": {
                 "url":           (cfg.get('layer_url') or '').strip(),
@@ -480,7 +482,7 @@ def esri_tak_sync_save_config():
     data = request.get_json(silent=True) or {}
     cfg  = _esri_tak_sync_load_config()
     for key in ['tak_host', 'tak_port', 'tak_auth_mode', 'tak_username', 'tak_password',
-                'tak_cert_name', 'tak_group',
+                'tak_cert_name', 'tak_group', 'cert_file', 'key_file',
                 'layer_url', 'layer_public', 'layer_type', 'esri_username',
                 'esri_password', 'portal_url', 'poll_interval', 'page_size',
                 'lat_field', 'lon_field', 'uid_field', 'uid_prefix',
@@ -503,6 +505,10 @@ def esri_tak_sync_save_config():
             if cfg.get('tak_host'):       ts['host']      = cfg['tak_host'].strip()
             if cfg.get('tak_port'):       ts['port']      = int(cfg['tak_port'])
             if cfg.get('tak_auth_mode'):  ts['auth_mode'] = cfg['tak_auth_mode'].strip()
+            if 'tak_username' in cfg:     ts['username']  = cfg['tak_username']
+            if 'tak_password' in cfg:     ts['password']  = cfg['tak_password']
+            if 'cert_file' in cfg:        ts['cert_file'] = cfg['cert_file']
+            if 'key_file'  in cfg:        ts['key_file']  = cfg['key_file']
             if cfg.get('layer_url'):     fl['url']  = cfg['layer_url'].strip()
             if cfg.get('layer_type'):    fl['layer_type'] = cfg['layer_type'].strip()
             if 'layer_public' in cfg:    fl['public'] = bool(cfg['layer_public'])
@@ -962,13 +968,15 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:'DM Sans',s
       <div class="form-group">
         <label class="form-label">Auth Mode</label>
         <select id="tak_auth_mode" class="form-input" onchange="toggleAuthMode()">
-          <option value="cert"  {% if cfg.get('tak_auth_mode','cert')=='cert'  %}selected{% endif %}>TLS/Cert (port 8089)</option>
-          <option value="plain" {% if cfg.get('tak_auth_mode')=='plain' %}selected{% endif %}>Plain TCP (port 8087)</option>
-          <option value="rest"  {% if cfg.get('tak_auth_mode')=='rest'  %}selected{% endif %}>REST / User+Pass (port 8443)</option>
+          <option value="cert"        {% if cfg.get('tak_auth_mode','cert')=='cert'        %}selected{% endif %}>TLS/Cert — P12 client cert (port 8089)</option>
+          <option value="tls_keypair" {% if cfg.get('tak_auth_mode')=='tls_keypair'        %}selected{% endif %}>TLS Keypair — PEM cert+key (port 8089)</option>
+          <option value="plain"       {% if cfg.get('tak_auth_mode')=='plain'              %}selected{% endif %}>Plain TCP (port 8087)</option>
+          <option value="rest"        {% if cfg.get('tak_auth_mode')=='rest'               %}selected{% endif %}>REST / User+Pass + cert (port 8443)</option>
+          <option value="authentik"   {% if cfg.get('tak_auth_mode')=='authentik'          %}selected{% endif %}>Authentik / LDAP — user+pass (port 8443)</option>
         </select>
       </div>
 
-      <!-- REST auth fields (user/pass) -->
+      <!-- REST auth fields (user/pass + client cert) -->
       <div id="rest-auth-section" style="display:{% if cfg.get('tak_auth_mode')=='rest' %}block{% else %}none{% endif %}">
         <div class="grid2">
           <div class="form-group">
@@ -980,11 +988,41 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:'DM Sans',s
             <input id="tak_password" class="form-input" type="password" value="{{ cfg.tak_password or '' }}">
           </div>
         </div>
-        <p class="hint">CoT is POST-ed to <code>https://&lt;host&gt;:8443/Marti/api/cot/xml</code>. TAK Server 8443 uses mutual TLS, so the cert below is still needed for the TLS handshake — username/password handles HTTP-level auth.</p>
+        <p class="hint">CoT is POST-ed to <code>https://&lt;host&gt;:8443/Marti/api/cot/xml</code>. TAK Server 8443 uses mutual TLS — a client cert is still required for the TLS handshake. Use the cert setup below.</p>
       </div>
 
-      <!-- TLS cert generation — shown only when TLS/Cert mode is selected -->
-      <div id="cert-gen-section" style="display:{% if cfg.get('tak_auth_mode','cert')=='cert' %}block{% else %}none{% endif %}">
+      <!-- Authentik / LDAP auth fields (user/pass only, no client cert) -->
+      <div id="authentik-auth-section" style="display:{% if cfg.get('tak_auth_mode')=='authentik' %}block{% else %}none{% endif %}">
+        <div class="grid2">
+          <div class="form-group">
+            <label class="form-label">TAK Username <span style="font-weight:400;color:var(--text-dim)">(Authentik / LDAP user)</span></label>
+            <input id="tak_username" class="form-input" type="text" placeholder="takuser" value="{{ cfg.tak_username or '' }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">TAK Password</label>
+            <input id="tak_password" class="form-input" type="password" value="{{ cfg.tak_password or '' }}">
+          </div>
+        </div>
+        <p class="hint">CoT is POST-ed to <code>https://&lt;host&gt;:8443/Marti/api/cot/xml</code> using the LDAP-synced user credentials from Authentik. No client cert required.</p>
+      </div>
+
+      <!-- TLS Keypair fields (PEM cert + key paths, Node-RED style) -->
+      <div id="tls-keypair-section" style="display:{% if cfg.get('tak_auth_mode')=='tls_keypair' %}block{% else %}none{% endif %}">
+        <div class="grid2">
+          <div class="form-group">
+            <label class="form-label">PEM Cert File</label>
+            <input id="cert_file" class="form-input" type="text" placeholder="/opt/Esri-TAKServer-Sync/certs/esri-push-cert.pem" value="{{ cfg.cert_file or '' }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">PEM Key File</label>
+            <input id="key_file" class="form-input" type="text" placeholder="/opt/Esri-TAKServer-Sync/certs/esri-push-key.pem" value="{{ cfg.key_file or '' }}">
+          </div>
+        </div>
+        <p class="hint">TLS connection to port 8089 using PEM cert+key directly — server cert verification is disabled (matches Node-RED flow). The cert files are generated automatically when you use the cert setup below.</p>
+      </div>
+
+      <!-- TLS cert generation — shown only when TLS/Cert or TLS Keypair mode is selected -->
+      <div id="cert-gen-section" style="display:{% if cfg.get('tak_auth_mode','cert') in ('cert','tls_keypair') %}block{% else %}none{% endif %}">
       {% if cert_exists %}
       <div style="background:rgba(16,185,129,.05);border:1px solid rgba(16,185,129,.2);border-radius:10px;padding:12px 16px;margin-bottom:12px;font-size:13px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
         <span style="color:var(--green)">✓ Cert configured — <code>{{ cert_pem_path }}</code></span>
@@ -1704,15 +1742,17 @@ function uploadCert(){
 function toggleAuthMode(){
   var mode=document.getElementById('tak_auth_mode').value;
   var restSec=document.getElementById('rest-auth-section');
+  var authSec=document.getElementById('authentik-auth-section');
+  var tlsKpSec=document.getElementById('tls-keypair-section');
   var certGen=document.getElementById('cert-gen-section');
-  var isRest=mode==='rest';
-  var isCert=mode==='cert';
-  if(restSec)restSec.style.display=isRest?'block':'none';
-  if(certGen)certGen.style.display=isCert?'block':'none';
+  if(restSec)restSec.style.display=mode==='rest'?'block':'none';
+  if(authSec)authSec.style.display=mode==='authentik'?'block':'none';
+  if(tlsKpSec)tlsKpSec.style.display=mode==='tls_keypair'?'block':'none';
+  if(certGen)certGen.style.display=(mode==='cert'||mode==='tls_keypair')?'block':'none';
   var portEl=document.getElementById('tak_port');
   if(portEl){
-    if(mode==='rest'&&(portEl.value==='8089'||portEl.value==='8087'))portEl.value='8443';
-    else if(mode==='cert'&&(portEl.value==='8443'||portEl.value==='8087'))portEl.value='8089';
+    if((mode==='rest'||mode==='authentik')&&(portEl.value==='8089'||portEl.value==='8087'))portEl.value='8443';
+    else if((mode==='cert'||mode==='tls_keypair')&&(portEl.value==='8443'||portEl.value==='8087'))portEl.value='8089';
     else if(mode==='plain'&&(portEl.value==='8443'||portEl.value==='8089'))portEl.value='8087';
   }
 }
@@ -1727,6 +1767,10 @@ function saveConfig(){
     tak_username:(document.getElementById('tak_username')||{value:''}).value,
     tak_password:(document.getElementById('tak_password')||{value:''}).value,
     tak_cert_name:(document.getElementById('cert-name-input')||{value:'esri-push'}).value.trim()||'esri-push',
+    tak_username:(document.getElementById('tak_username')||{value:''}).value,
+    tak_password:(document.getElementById('tak_password')||{value:''}).value,
+    cert_file:(document.getElementById('cert_file')||{value:''}).value.trim(),
+    key_file:(document.getElementById('key_file')||{value:''}).value.trim(),
     layer_url:document.getElementById('layer_url').value,
     layer_public:document.getElementById('layer_public').value==='1',
     layer_type:document.getElementById('layer_type').value,

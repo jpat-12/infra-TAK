@@ -372,9 +372,11 @@ def build_cot(feature: dict, fm: dict, cot_cfg: dict, icon_cfg: dict | None = No
 
 # Default ports per auth mode
 _AUTH_MODE_DEFAULT_PORTS = {
-    "cert":  8089,   # TLS with client certificate
-    "plain": 8087,   # Plain TCP, no certificate
-    "rest":  8443,   # HTTPS REST API with Basic Auth
+    "cert":        8089,   # TLS with client certificate (mutual TLS)
+    "tls_keypair": 8089,   # TLS with PEM cert+key, no server verification (Node-RED style)
+    "plain":       8087,   # Plain TCP, no certificate
+    "rest":        8443,   # HTTPS REST API with Basic Auth + client cert
+    "authentik":   8443,   # HTTPS REST API with Basic Auth only (Authentik/LDAP user)
 }
 
 
@@ -382,9 +384,11 @@ class TAKClient:
     """
     TAK Server client.
 
-    auth_mode = "cert"  → TLS with .p12 client certificate (port 8089)
-    auth_mode = "plain" → Plain TCP, no certificate required (port 8087)
-    auth_mode = "rest"  → HTTPS REST API POST /Marti/api/cot/xml (port 8443)
+    auth_mode = "cert"        → TLS with .p12 client certificate (port 8089)
+    auth_mode = "tls_keypair" → TLS with PEM cert+key, no server cert verification (port 8089)
+    auth_mode = "plain"       → Plain TCP, no certificate required (port 8087)
+    auth_mode = "rest"        → HTTPS REST API POST /Marti/api/cot/xml, Basic Auth + client cert (port 8443)
+    auth_mode = "authentik"   → HTTPS REST API POST /Marti/api/cot/xml, Basic Auth only (port 8443)
     """
 
     def __init__(self, cfg: dict):
@@ -392,7 +396,6 @@ class TAKClient:
         self.host       = tak["host"]
         self.auth_mode  = tak.get("auth_mode", "cert").lower()
 
-        # Honour explicit port; fall back to mode default
         default_port    = _AUTH_MODE_DEFAULT_PORTS.get(self.auth_mode, 8089)
         self.port       = int(tak.get("port") or default_port)
 
@@ -401,16 +404,27 @@ class TAKClient:
         self.cert_path  = tak.get("cert_path", "")
         self.cert_pass  = tak.get("cert_password", "")
         self.ca_cert    = tak.get("ca_cert", "")
+        self.cert_file  = tak.get("cert_file", "")   # PEM cert path (tls_keypair mode)
+        self.key_file   = tak.get("key_file", "")    # PEM key path  (tls_keypair mode)
         self._sock      = None
-        self._session   = None   # requests.Session for REST mode
+        self._session   = None
 
     # ── Connection ────────────────────────────────────────────────────────────
 
     def connect(self):
+        if self.auth_mode == "authentik":
+            # Authentik/LDAP: Basic Auth over HTTPS, no client cert required.
+            self._session = requests.Session()
+            self._session.auth = (self.username, self.password)
+            self._session.verify = False
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            log.info("Authentik/LDAP mode: will POST CoT to https://%s:%d/Marti/api/cot/xml (Basic Auth)",
+                     self.host, self.port)
+            return
+
         if self.auth_mode == "rest":
-            # REST mode: HTTPS POST to /Marti/api/cot/xml with HTTP Basic Auth.
-            # TAK Server 8443 uses mutual TLS, so we must also present a client
-            # certificate during the TLS handshake (same PEM sidecars as cert mode).
+            # REST mode: Basic Auth + client cert (mutual TLS against 8443).
             self._session = requests.Session()
             self._session.auth = (self.username, self.password)
 
@@ -450,7 +464,6 @@ class TAKClient:
                 ctx.check_hostname = False
                 ctx.verify_mode    = ssl.CERT_NONE
 
-            # .p12 must have PEM sidecars extracted by setup-cert.py
             pem_cert = self.cert_path.replace(".p12", "-cert.pem")
             pem_key  = self.cert_path.replace(".p12", "-key.pem")
             if os.path.exists(pem_cert) and os.path.exists(pem_key):
@@ -461,18 +474,28 @@ class TAKClient:
                     "Run setup-cert.py or re-deploy to generate them.",
                     pem_cert, pem_key
                 )
-
             self._sock = ctx.wrap_socket(raw, server_hostname=self.host)
+
+        elif self.auth_mode == "tls_keypair":
+            # TLS with direct PEM cert+key — no server cert verification (matches Node-RED flow).
+            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            ctx.check_hostname = False
+            ctx.verify_mode    = ssl.CERT_NONE
+            if self.cert_file and self.key_file:
+                if os.path.exists(self.cert_file) and os.path.exists(self.key_file):
+                    ctx.load_cert_chain(self.cert_file, self.key_file)
+                else:
+                    log.warning("tls_keypair: cert/key files not found (%s / %s)", self.cert_file, self.key_file)
+            else:
+                log.warning("tls_keypair: no cert_file/key_file configured — connecting without client cert")
+            self._sock = ctx.wrap_socket(raw, server_hostname=self.host)
+
         else:
             # Plain TCP — no TLS, no cert
             self._sock = raw
 
-        # Switch to blocking after connect (sendall needs it)
         self._sock.settimeout(None)
-        log.info(
-            "Connected to TAK Server %s:%d (auth_mode=%s)",
-            self.host, self.port, self.auth_mode
-        )
+        log.info("Connected to TAK Server %s:%d (auth_mode=%s)", self.host, self.port, self.auth_mode)
 
     # ── Health check ──────────────────────────────────────────────────────────
 
@@ -508,7 +531,7 @@ class TAKClient:
 
     def send(self, cot_xml: str):
         """Send one CoT event."""
-        if self.auth_mode == "rest":
+        if self.auth_mode in ("rest", "authentik"):
             url = f"https://{self.host}:{self.port}/Marti/api/cot/xml"
             resp = self._session.post(
                 url, data=cot_xml.encode("utf-8"),
