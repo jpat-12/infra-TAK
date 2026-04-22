@@ -130,7 +130,7 @@ def _run_cot_fl_install():
 
     try:
         cfg      = _cot_fl_load_config()
-        base_dir = os.path.dirname(os.path.abspath(__file__))
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         src_py   = os.path.join(base_dir, 'modules', 'cot_featurelayer', 'python')
         src_svc  = os.path.join(base_dir, 'modules', 'cot_featurelayer', 'service-files')
 

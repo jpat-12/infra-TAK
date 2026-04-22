@@ -37,7 +37,7 @@ def _run_esri_tak_sync_install():
 
     try:
         cfg      = _esri_tak_sync_load_config()
-        base_dir = os.path.dirname(os.path.abspath(__file__))
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         src_py   = os.path.join(base_dir, 'modules', 'esri_takserver_sync', 'python')
         src_svc  = os.path.join(base_dir, 'modules', 'esri_takserver_sync', 'service-files')
 
