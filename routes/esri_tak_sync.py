@@ -77,8 +77,8 @@ def _run_esri_tak_sync_install():
                 "username":      (cfg.get('tak_username') or '').strip(),
                 "password":      (cfg.get('tak_password') or '').strip(),
                 "cert_path":     os.path.join(ESRI_TAK_SYNC_DIR, 'certs', 'esri-push.p12'),
-                "cert_password": (cfg.get('cert_password') or '').strip(),
-                "ca_cert":       (cfg.get('ca_cert') or '').strip()
+                "cert_password": "atakatak",
+                "ca_cert":       ""
             },
             "feature_layer": {
                 "url":           (cfg.get('layer_url') or '').strip(),
@@ -499,6 +499,7 @@ def esri_tak_sync_save_config():
             fl = existing.setdefault('feature_layer', {})
             fm = existing.setdefault('field_mapping', {})
             dt = existing.setdefault('delta', {})
+            ts['ca_cert'] = ''  # always clear — server cert verification disabled
             if cfg.get('tak_host'):       ts['host']      = cfg['tak_host'].strip()
             if cfg.get('tak_port'):       ts['port']      = int(cfg['tak_port'])
             if cfg.get('tak_auth_mode'):  ts['auth_mode'] = cfg['tak_auth_mode'].strip()
