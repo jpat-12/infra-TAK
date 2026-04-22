@@ -480,7 +480,7 @@ def esri_tak_sync_save_config():
     data = request.get_json(silent=True) or {}
     cfg  = _esri_tak_sync_load_config()
     for key in ['tak_host', 'tak_port', 'tak_auth_mode', 'tak_username', 'tak_password',
-                'cert_password', 'ca_cert', 'tak_group',
+                'tak_cert_name', 'tak_group',
                 'layer_url', 'layer_public', 'layer_type', 'esri_username',
                 'esri_password', 'portal_url', 'poll_interval', 'page_size',
                 'lat_field', 'lon_field', 'uid_field', 'uid_prefix',
@@ -982,93 +982,38 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:'DM Sans',s
         <p class="hint">CoT is POST-ed to <code>https://&lt;host&gt;:8443/Marti/api/cot/xml</code>. TAK Server 8443 uses mutual TLS, so the cert below is still needed for the TLS handshake — username/password handles HTTP-level auth.</p>
       </div>
 
-      <!-- Cert auth fields -->
-      <div id="cert-auth-section" style="display:{% if cfg.get('tak_auth_mode')=='rest' %}none{% else %}block{% endif %}">
-        <div class="form-group">
-          <label class="form-label">P12 Certificate Password <span style="font-weight:400;color:var(--text-dim)">(leave blank if none)</span></label>
-          <input id="cert_password" class="form-input" type="password" placeholder="" value="{{ cfg.cert_password or '' }}">
-        </div>
-        <div class="form-group">
-          <label class="form-label">CA Cert Path <span style="font-weight:400;color:var(--text-dim)">(optional — path to TAK Server CA .pem for verification)</span></label>
-          <input id="ca_cert" class="form-input" type="text" placeholder="/opt/Esri-TAKServer-Sync/certs/takserver-ca.pem" value="{{ cfg.ca_cert or '' }}">
-          <p class="hint">Leave empty to skip TAK Server cert verification (OK for internal/dev).</p>
-        </div>
-      </div>
-
-      <!-- Client Certificate — shown only when cert auth mode is selected -->
-      <div id="cert-section-wrapper" style="display:{% if cfg.get('tak_auth_mode') in ('plain','rest') %}none{% else %}block{% endif %}">
-      <div class="section-title" style="margin-top:18px">🔒 Client Certificate</div>
+      <!-- TLS cert generation — shown only when TLS/Cert mode is selected -->
+      <div id="cert-gen-section" style="display:{% if cfg.get('tak_auth_mode','cert')=='cert' %}block{% else %}none{% endif %}">
       {% if cert_exists %}
       <div style="background:rgba(16,185,129,.05);border:1px solid rgba(16,185,129,.2);border-radius:10px;padding:12px 16px;margin-bottom:12px;font-size:13px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
         <span style="color:var(--green)">✓ Cert configured — <code>{{ cert_pem_path }}</code></span>
-        <button class="btn btn-ghost" style="font-size:12px;padding:4px 12px" onclick="document.getElementById('cert-setup-section').style.display=document.getElementById('cert-setup-section').style.display==='none'?'block':'none'">Replace…</button>
+        <button class="btn btn-ghost" style="font-size:12px;padding:4px 12px" onclick="document.getElementById('cert-gen-form').style.display=document.getElementById('cert-gen-form').style.display==='none'?'block':'none'">Replace…</button>
       </div>
+      <div id="cert-gen-form" style="display:none">
       {% else %}
-      <p style="font-size:13px;color:var(--yellow);margin-bottom:14px">⚠ No cert configured. The service needs a TAK Server-issued client cert for TLS auth (port 8089).</p>
+      <div id="cert-gen-form">
       {% endif %}
-
-      <!-- TAK Group — always visible when TAK Server is local -->
-      {% if tak_local %}
-      <div style="background:rgba(99,102,241,.05);border:1px solid rgba(99,102,241,.2);border-radius:10px;padding:14px 16px;margin-bottom:14px">
-        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:10px">
-          <strong>TAK Group</strong> — the cert must be in the same group as your WinTAK / iTAK / WebTAK clients (usually <code>__ANON__</code>).
-        </p>
-        <div style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap">
-          <input id="tak_group" class="form-input" type="text" placeholder="__ANON__" value="{{ cfg.tak_group or '__ANON__' }}" style="width:200px">
-          {% if cert_exists %}
-          <button class="btn btn-primary" style="padding:8px 16px" onclick="enrollCertGroup()">Re-enroll in Group</button>
-          <span id="enroll-msg" style="font-size:13px;align-self:center"></span>
-          {% endif %}
-        </div>
-      </div>
-      {% endif %}
-
-      <!-- Cert setup section: hidden when cert exists (shown on Replace click) -->
-      <div id="cert-setup-section" style="display:{% if cert_exists %}none{% else %}block{% endif %}">
-
-        <!-- Mode selector -->
-        <div style="display:flex;gap:0;margin-bottom:16px;border:1px solid var(--border);border-radius:8px;overflow:hidden;width:fit-content">
-          <button id="cert-mode-gen" onclick="setCertMode('generate')" style="padding:8px 20px;font-size:13px;border:none;cursor:pointer;background:var(--accent);color:#fff;font-weight:600">🔑 Generate New</button>
-          <button id="cert-mode-upload" onclick="setCertMode('upload')" style="padding:8px 20px;font-size:13px;border:none;cursor:pointer;background:var(--surface2);color:var(--text-secondary)">⬆ Upload Existing</button>
-        </div>
-
-        <!-- Generate panel -->
-        <div id="cert-panel-generate">
-          {% if tak_local %}
-          <div style="background:rgba(16,185,129,.04);border:1px solid rgba(16,185,129,.18);border-radius:10px;padding:11px 14px;margin-bottom:12px;font-size:13px">
-            <strong style="color:var(--green)">✓ TAK Server detected</strong><span style="color:var(--text-secondary)"> — will run makeCert.sh, enroll in the group above, and extract PEM files.</span>
+        {% if tak_local %}
+        <div class="grid2">
+          <div class="form-group">
+            <label class="form-label">Cert Name</label>
+            <input id="cert-name-input" class="form-input" type="text" value="{{ cfg.tak_cert_name or 'esri-push' }}" placeholder="esri-push">
           </div>
-          <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
-            <div>
-              <label class="form-label" style="margin-bottom:4px">Cert Name</label>
-              <input id="cert-name-input" class="form-input" type="text" value="esri-push" style="width:160px">
-            </div>
-            <button id="cert-gen-btn" class="btn btn-success" onclick="runCertSetup()">🔑 Generate &amp; Enroll</button>
-          </div>
-          {% else %}
-          <p style="font-size:13px;color:var(--text-secondary)">TAK Server not detected on this host — use the Upload option instead.</p>
-          {% endif %}
-        </div>
-
-        <!-- Upload panel -->
-        <div id="cert-panel-upload" style="display:none">
-          <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
-            <div>
-              <label class="form-label" style="margin-bottom:4px">P12 Password</label>
-              <input id="cert-password" class="form-input" type="password" value="atakatak" style="width:160px">
-            </div>
-            <div>
-              <label class="form-label" style="margin-bottom:4px">.p12 File</label>
-              <input id="cert-p12-input" type="file" accept=".p12" style="font-size:13px;color:var(--text-secondary)">
-            </div>
-            <button id="cert-upload-btn" class="btn btn-primary" style="align-self:flex-end" onclick="uploadCert()">⬆ Import &amp; Enroll</button>
+          <div class="form-group">
+            <label class="form-label">TAK Group</label>
+            <input id="tak_group" class="form-input" type="text" placeholder="__ANON__" value="{{ cfg.tak_group or '__ANON__' }}">
           </div>
         </div>
-
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <button id="cert-gen-btn" class="btn btn-success" onclick="runCertSetup()">🔑 Generate &amp; Enroll</button>
+          <span id="cert-status-msg" style="font-size:13px"></span>
+        </div>
         <div id="cert-log-box" class="log-box" style="margin-top:12px;display:none"></div>
-        <div id="cert-status-msg" style="font-size:13px;margin-top:8px"></div>
+        {% else %}
+        <p style="font-size:13px;color:var(--text-secondary)">TAK Server not detected on this host — cannot generate cert locally.</p>
+        {% endif %}
       </div>
-      </div><!-- end cert-section-wrapper -->
+      </div><!-- end cert-gen-section -->
 
       <div class="section-title">Feature Layer</div>
       <div class="form-group">
@@ -1674,27 +1619,12 @@ toggleAuth();
 // ── Cert setup ──────────────────────────────────────────────────────────────
 var _certLogIdx=0,_certLogPoll=null;
 
-function setCertMode(mode){
-  var genBtn=document.getElementById('cert-mode-gen');
-  var upBtn=document.getElementById('cert-mode-upload');
-  var genPanel=document.getElementById('cert-panel-generate');
-  var upPanel=document.getElementById('cert-panel-upload');
-  var isGen=mode==='generate';
-  if(genBtn){genBtn.style.background=isGen?'var(--accent)':'var(--surface2)';genBtn.style.color=isGen?'#fff':'var(--text-secondary)';genBtn.style.fontWeight=isGen?'600':'400';}
-  if(upBtn){upBtn.style.background=isGen?'var(--surface2)':'var(--accent)';upBtn.style.color=isGen?'var(--text-secondary)':'#fff';upBtn.style.fontWeight=isGen?'400':'600';}
-  if(genPanel)genPanel.style.display=isGen?'block':'none';
-  if(upPanel)upPanel.style.display=isGen?'none':'block';
-}
-
 function _certGroup(){
   var el=document.getElementById('tak_group');
   return (el&&el.value.trim())||'__ANON__';
 }
 
-function _certPassword(){
-  var el=document.getElementById('cert-password');
-  return el?el.value:'atakatak';
-}
+function _certPassword(){ return 'atakatak'; }
 
 function _certPollStart(){
   _certLogIdx=0;
@@ -1773,14 +1703,11 @@ function uploadCert(){
 function toggleAuthMode(){
   var mode=document.getElementById('tak_auth_mode').value;
   var restSec=document.getElementById('rest-auth-section');
-  var certSec=document.getElementById('cert-auth-section');
-  var certWrap=document.getElementById('cert-section-wrapper');
+  var certGen=document.getElementById('cert-gen-section');
   var isRest=mode==='rest';
   var isCert=mode==='cert';
   if(restSec)restSec.style.display=isRest?'block':'none';
-  if(certSec)certSec.style.display=isRest?'none':'block';
-  if(certWrap)certWrap.style.display=isCert?'block':'none';
-  // Auto-set port
+  if(certGen)certGen.style.display=isCert?'block':'none';
   var portEl=document.getElementById('tak_port');
   if(portEl){
     if(mode==='rest'&&(portEl.value==='8089'||portEl.value==='8087'))portEl.value='8443';
@@ -1798,8 +1725,7 @@ function saveConfig(){
     tak_auth_mode:document.getElementById('tak_auth_mode').value,
     tak_username:(document.getElementById('tak_username')||{value:''}).value,
     tak_password:(document.getElementById('tak_password')||{value:''}).value,
-    cert_password:(document.getElementById('cert_password')||{value:''}).value,
-    ca_cert:(document.getElementById('ca_cert')||{value:''}).value,
+    tak_cert_name:(document.getElementById('cert-name-input')||{value:'esri-push'}).value.trim()||'esri-push',
     layer_url:document.getElementById('layer_url').value,
     layer_public:document.getElementById('layer_public').value==='1',
     layer_type:document.getElementById('layer_type').value,
@@ -1828,22 +1754,6 @@ function saveConfig(){
       if(!msg)return;
       if(d.success){msg.textContent='✓ Saved — opening Icons…';msg.style.color='var(--green)';setTimeout(function(){msg.textContent='';showTab('icons');if(typeof loadIconsets==='function')loadIconsets();},1500);}
       else{msg.textContent='✗ Error';msg.style.color='var(--red)';}
-    }).catch(function(){if(msg){msg.textContent='Request failed';msg.style.color='var(--red)';}});
-}
-
-function enrollCertGroup(){
-  var groupEl=document.getElementById('tak_group');
-  var msg=document.getElementById('enroll-msg');
-  var group=(groupEl?groupEl.value.trim():'') || '__ANON__';
-  if(msg){msg.textContent='Enrolling…';msg.style.color='var(--text-dim)';}
-  fetch('/api/esri-tak-sync/enroll-cert-group',{method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({group:group}),credentials:'same-origin'})
-    .then(function(r){return r.json();})
-    .then(function(d){
-      if(!msg)return;
-      if(d.success){msg.textContent='✓ Enrolled in "'+group+'"';msg.style.color='var(--green)';}
-      else{msg.textContent='✗ '+(d.error||'Failed');msg.style.color='var(--red)';}
     }).catch(function(){if(msg){msg.textContent='Request failed';msg.style.color='var(--red)';}});
 }
 
