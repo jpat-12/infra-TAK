@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify, render_template_string, make_response
 import os, json, subprocess, threading, html, shutil
 from datetime import datetime
-from app import login_required, load_settings, save_settings
+from routes.helpers import login_required, load_settings, save_settings
 
 cot_featurelayer_bp = Blueprint('cot_featurelayer', __name__)
 
