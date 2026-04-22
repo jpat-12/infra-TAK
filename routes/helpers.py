@@ -4,6 +4,7 @@ from flask import request, session, redirect, url_for, jsonify
 
 BASE_DIR   = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_DIR = os.environ.get('CONFIG_DIR') or os.path.join(BASE_DIR, '.config')
+VERSION    = "0.6.2-alpha"
 
 
 def load_settings():

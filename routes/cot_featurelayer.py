@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify, render_template_string, make_response
 import os, json, subprocess, threading, html, shutil
 from datetime import datetime
-from routes.helpers import login_required, load_settings, save_settings
+from routes.helpers import login_required, load_settings, save_settings, VERSION
 
 cot_featurelayer_bp = Blueprint('cot_featurelayer', __name__)
 
@@ -247,6 +247,7 @@ def _run_cot_fl_install():
 @cot_featurelayer_bp.route('/cot-featurelayer')
 @login_required
 def cot_fl_page():
+    from app import detect_modules
     settings   = load_settings()
     modules    = detect_modules()
     mod        = modules.get('cot_featurelayer', {})
