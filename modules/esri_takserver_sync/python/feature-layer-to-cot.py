@@ -413,12 +413,23 @@ class TAKClient:
 
     def connect(self):
         if self.auth_mode == "authentik":
-            # Authentik/LDAP: Basic Auth over HTTPS, no client cert required.
+            # Authentik/LDAP: Basic Auth over HTTPS. TAK Server 8443 enforces
+            # mutual TLS so a client cert is still required alongside credentials.
             self._session = requests.Session()
             self._session.auth = (self.username, self.password)
             self._session.verify = False
             import urllib3
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            if self.cert_file and self.key_file and os.path.exists(self.cert_file) and os.path.exists(self.key_file):
+                self._session.cert = (self.cert_file, self.key_file)
+                log.info("Authentik/LDAP mode: using client cert %s", self.cert_file)
+            elif os.path.exists(self.cert_path.replace(".p12", "-cert.pem")):
+                pem_cert = self.cert_path.replace(".p12", "-cert.pem")
+                pem_key  = self.cert_path.replace(".p12", "-key.pem")
+                self._session.cert = (pem_cert, pem_key)
+                log.info("Authentik/LDAP mode: using client cert %s", pem_cert)
+            else:
+                log.warning("Authentik/LDAP mode: no client cert found — TAK Server may reject the connection")
             log.info("Authentik/LDAP mode: will POST CoT to https://%s:%d/Marti/api/cot/xml (Basic Auth)",
                      self.host, self.port)
             return
