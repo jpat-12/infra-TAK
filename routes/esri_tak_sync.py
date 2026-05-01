@@ -67,20 +67,13 @@ def _run_esri_tak_sync_install():
         plog("")
         plog("━━━ Step 3/6: Writing config.json ━━━")
         config_path = os.path.join(ESRI_TAK_SYNC_DIR, 'config.json')
-        auth_mode = (cfg.get('tak_auth_mode') or 'cert').strip()
-        default_port = {'cert': 8089, 'plain': 8087, 'rest': 8443}.get(auth_mode, 8089)
         config_data = {
             "tak_server": {
                 "host":          (cfg.get('tak_host') or 'localhost').strip(),
-                "port":          int(cfg.get('tak_port') or default_port),
-                "auth_mode":     auth_mode,
-                "username":      (cfg.get('tak_username') or '').strip(),
-                "password":      (cfg.get('tak_password') or '').strip(),
-                "cert_path":     os.path.join(ESRI_TAK_SYNC_DIR, 'certs', 'esri-push.p12'),
+                "port":          int(cfg.get('tak_integration_port') or 8089),
+                "cert_path":     os.path.join(ESRI_TAK_SYNC_DIR, 'certs', ''),
                 "cert_password": "atakatak",
-                "ca_cert":       "",
-                "cert_file":     (cfg.get('cert_file') or '').strip(),
-                "key_file":      (cfg.get('key_file') or '').strip()
+                "ca_cert":       ""
             },
             "feature_layer": {
                 "url":           (cfg.get('layer_url') or '').strip(),
@@ -481,8 +474,7 @@ def esri_tak_sync_page():
 def esri_tak_sync_save_config():
     data = request.get_json(silent=True) or {}
     cfg  = _esri_tak_sync_load_config()
-    for key in ['tak_host', 'tak_port', 'tak_auth_mode', 'tak_username', 'tak_password',
-                'tak_cert_name', 'tak_group', 'cert_file', 'key_file', 'output_file',
+    for key in ['tak_host', 'tak_integration_port',
                 'layer_url', 'layer_public', 'layer_type', 'esri_username',
                 'esri_password', 'portal_url', 'poll_interval', 'page_size',
                 'lat_field', 'lon_field', 'uid_field', 'uid_prefix',
@@ -502,14 +494,8 @@ def esri_tak_sync_save_config():
             fm = existing.setdefault('field_mapping', {})
             dt = existing.setdefault('delta', {})
             ts['ca_cert'] = ''  # always clear — server cert verification disabled
-            if cfg.get('tak_host'):       ts['host']      = cfg['tak_host'].strip()
-            if cfg.get('tak_port'):       ts['port']      = int(cfg['tak_port'])
-            if cfg.get('tak_auth_mode'):  ts['auth_mode'] = cfg['tak_auth_mode'].strip()
-            if 'tak_username' in cfg:     ts['username']  = cfg['tak_username']
-            if 'tak_password' in cfg:     ts['password']  = cfg['tak_password']
-            if 'cert_file'   in cfg:      ts['cert_file']    = cfg['cert_file']
-            if 'key_file'    in cfg:      ts['key_file']     = cfg['key_file']
-            if 'output_file' in cfg:      ts['output_file']  = cfg['output_file']
+            if cfg.get('tak_host'):             ts['host'] = cfg['tak_host'].strip()
+            if cfg.get('tak_integration_port'): ts['port'] = int(cfg['tak_integration_port'])
             if cfg.get('layer_url'):     fl['url']  = cfg['layer_url'].strip()
             if cfg.get('layer_type'):    fl['layer_type'] = cfg['layer_type'].strip()
             if 'layer_public' in cfg:    fl['public'] = bool(cfg['layer_public'])
@@ -525,6 +511,64 @@ def esri_tak_sync_save_config():
         except Exception:
             pass
     return jsonify({'success': True})
+
+
+@esri_tak_sync_bp.route('/api/esri-tak-sync/upload-cert-zip', methods=['POST'])
+@login_required
+def esri_tak_sync_upload_cert_zip():
+    import zipfile, tempfile
+    f = request.files.get('zip')
+    if not f:
+        return jsonify({'error': 'No file provided'}), 400
+    certs_dir = os.path.join(ESRI_TAK_SYNC_DIR, 'certs')
+    os.makedirs(certs_dir, exist_ok=True)
+    with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as tmp:
+        f.save(tmp.name)
+        tmp_path = tmp.name
+    try:
+        extracted = []
+        p12_name  = None
+        with zipfile.ZipFile(tmp_path, 'r') as zf:
+            for name in zf.namelist():
+                ext = os.path.splitext(name)[1].lower()
+                if ext in ('.p12', '.pem', '.key'):
+                    basename = os.path.basename(name)
+                    dest = os.path.join(certs_dir, basename)
+                    with zf.open(name) as src, open(dest, 'wb') as dst:
+                        dst.write(src.read())
+                    try:
+                        os.chmod(dest, 0o600)
+                    except Exception:
+                        pass
+                    extracted.append(basename)
+                    if ext == '.p12':
+                        p12_name = basename
+        if not extracted:
+            return jsonify({'error': 'No .p12, .pem, or .key files found in zip'}), 400
+        # Update live config.json cert_path and settings
+        if p12_name:
+            p12_path = os.path.join(certs_dir, p12_name)
+            config_path = os.path.join(ESRI_TAK_SYNC_DIR, 'config.json')
+            if os.path.exists(config_path):
+                try:
+                    with open(config_path) as cf:
+                        existing = json.load(cf)
+                    existing.setdefault('tak_server', {})['cert_path'] = p12_path
+                    with open(config_path, 'w') as cf:
+                        json.dump(existing, cf, indent=2)
+                except Exception:
+                    pass
+            settings = _esri_tak_sync_load_config()
+            settings['tak_cert_path'] = p12_path
+            _esri_tak_sync_save_config(settings)
+        return jsonify({'success': True, 'files': extracted})
+    except zipfile.BadZipFile:
+        return jsonify({'error': 'Invalid zip file'}), 400
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
 
 
 @esri_tak_sync_bp.route('/api/esri-tak-sync/install', methods=['POST'])
@@ -955,115 +999,51 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:'DM Sans',s
     {% endif %}
 
     <div class="card">
-      <div class="section-title">TAK Server</div>
-      <div class="grid2">
-        <div class="form-group">
-          <label class="form-label">Host</label>
-          <input id="tak_host" class="form-input" type="text" placeholder="localhost" value="{{ cfg.tak_host or '' }}">
-        </div>
-        <div class="form-group">
-          <label class="form-label">CoT Port</label>
-          <input id="tak_port" class="form-input" type="number" placeholder="8089" value="{{ cfg.tak_port or '8089' }}">
-        </div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Auth Mode</label>
-        <select id="tak_auth_mode" class="form-input" onchange="toggleAuthMode()">
-          <option value="cert"        {% if cfg.get('tak_auth_mode','cert')=='cert'        %}selected{% endif %}>TLS/Cert — P12 client cert (port 8089)</option>
-          <option value="tls_keypair" {% if cfg.get('tak_auth_mode')=='tls_keypair'        %}selected{% endif %}>TLS Keypair — PEM cert+key (port 8089)</option>
-          <option value="plain"       {% if cfg.get('tak_auth_mode')=='plain'              %}selected{% endif %}>Plain TCP (port 8087)</option>
-          <option value="rest"        {% if cfg.get('tak_auth_mode')=='rest'               %}selected{% endif %}>REST / User+Pass + cert (port 8443)</option>
-          <option value="authentik"   {% if cfg.get('tak_auth_mode')=='authentik'          %}selected{% endif %}>Authentik / LDAP — user+pass (port 8443)</option>
-          <option value="file"        {% if cfg.get('tak_auth_mode')=='file'               %}selected{% endif %}>File — write CoT to text file (no TAK Server)</option>
-        </select>
-      </div>
+      <div class="section-title">TAK Server Connection</div>
 
-      <!-- REST auth fields (user/pass + client cert) -->
-      <div id="rest-auth-section" style="display:{% if cfg.get('tak_auth_mode')=='rest' %}block{% else %}none{% endif %}">
-        <div class="grid2">
-          <div class="form-group">
-            <label class="form-label">TAK Username</label>
-            <input id="tak_username" class="form-input" type="text" placeholder="admin" value="{{ cfg.tak_username or '' }}">
+      <!-- Step 1 -->
+      <div style="background:rgba(59,130,246,.07);border:1px solid rgba(59,130,246,.2);border-radius:10px;padding:14px 16px;margin-bottom:16px">
+        <div style="font-weight:600;font-size:13px;margin-bottom:6px;color:#60a5fa">① Create a TAK Portal Integration</div>
+        <p style="font-size:13px;margin:0 0 8px;color:var(--text-secondary)">
+          In <strong>TAK Portal</strong>, go to <em>Connections → Integrations</em> and create a new integration.
+          Set the port to <strong id="integration-port-display">{{ cfg.get('tak_integration_port', '7001') }}</strong>.
+          When done, download the certificate package (.zip) it provides.
+        </p>
+        <div class="grid2" style="margin-top:8px">
+          <div class="form-group" style="margin:0">
+            <label class="form-label">TAK Server Host</label>
+            <input id="tak_host" class="form-input" type="text" placeholder="localhost" value="{{ cfg.tak_host or 'localhost' }}">
           </div>
-          <div class="form-group">
-            <label class="form-label">TAK Password</label>
-            <input id="tak_password" class="form-input" type="password" value="{{ cfg.tak_password or '' }}">
+          <div class="form-group" style="margin:0">
+            <label class="form-label">Integration Port <span style="font-weight:400;color:var(--text-dim)">(default 7001)</span></label>
+            <input id="tak_integration_port" class="form-input" type="number" placeholder="7001"
+              value="{{ cfg.get('tak_integration_port', '7001') }}"
+              oninput="document.getElementById('integration-port-display').textContent=this.value||'7001'">
           </div>
-        </div>
-        <p class="hint">CoT is POST-ed to <code>https://&lt;host&gt;:8443/Marti/api/cot/xml</code>. TAK Server 8443 uses mutual TLS — a client cert is still required for the TLS handshake. Use the cert setup below.</p>
-      </div>
-
-      <!-- Authentik / LDAP auth fields (user/pass only, no client cert) -->
-      <div id="authentik-auth-section" style="display:{% if cfg.get('tak_auth_mode')=='authentik' %}block{% else %}none{% endif %}">
-        <div class="grid2">
-          <div class="form-group">
-            <label class="form-label">TAK Username <span style="font-weight:400;color:var(--text-dim)">(Authentik / LDAP user)</span></label>
-            <input id="tak_username" class="form-input" type="text" placeholder="takuser" value="{{ cfg.tak_username or '' }}">
-          </div>
-          <div class="form-group">
-            <label class="form-label">TAK Password</label>
-            <input id="tak_password" class="form-input" type="password" value="{{ cfg.tak_password or '' }}">
-          </div>
-        </div>
-        <p class="hint">CoT is POST-ed to <code>https://&lt;host&gt;:8443/Marti/api/cot/xml</code> using the LDAP-synced user credentials from Authentik. No client cert required.</p>
-      </div>
-
-      <!-- TLS Keypair fields (PEM cert + key paths, Node-RED style) -->
-      <div id="tls-keypair-section" style="display:{% if cfg.get('tak_auth_mode')=='tls_keypair' %}block{% else %}none{% endif %}">
-        <div class="grid2">
-          <div class="form-group">
-            <label class="form-label">PEM Cert File</label>
-            <input id="cert_file" class="form-input" type="text" placeholder="/opt/Esri-TAKServer-Sync/certs/esri-push-cert.pem" value="{{ cfg.cert_file or '' }}">
-          </div>
-          <div class="form-group">
-            <label class="form-label">PEM Key File</label>
-            <input id="key_file" class="form-input" type="text" placeholder="/opt/Esri-TAKServer-Sync/certs/esri-push-key.pem" value="{{ cfg.key_file or '' }}">
-          </div>
-        </div>
-        <p class="hint">TLS connection to port 8089 using PEM cert+key directly — server cert verification is disabled (matches Node-RED flow). The cert files are generated automatically when you use the cert setup below.</p>
-      </div>
-
-      <!-- File output mode -->
-      <div id="file-output-section" style="display:{% if cfg.get('tak_auth_mode')=='file' %}block{% else %}none{% endif %}">
-        <div class="form-group">
-          <label class="form-label">Output File Path</label>
-          <input type="text" id="output_file" class="form-input" value="{{ cfg.get('output_file','/opt/Esri-TAKServer-Sync/cot_output.txt') }}" placeholder="/opt/Esri-TAKServer-Sync/cot_output.txt">
-          <p class="hint">Each poll cycle overwrites this file with one CoT XML message per line. No TAK Server connection is made.</p>
         </div>
       </div>
 
-      <!-- TLS cert generation — shown only when TLS/Cert or TLS Keypair mode is selected -->
-      <div id="cert-gen-section" style="display:{% if cfg.get('tak_auth_mode','cert') in ('cert','tls_keypair') %}block{% else %}none{% endif %}">
-      {% if cert_exists %}
-      <div style="background:rgba(16,185,129,.05);border:1px solid rgba(16,185,129,.2);border-radius:10px;padding:12px 16px;margin-bottom:12px;font-size:13px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
-        <span style="color:var(--green)">✓ Cert configured — <code>{{ cert_pem_path }}</code></span>
-        <button class="btn btn-ghost" style="font-size:12px;padding:4px 12px" onclick="document.getElementById('cert-gen-form').style.display=document.getElementById('cert-gen-form').style.display==='none'?'block':'none'">Replace…</button>
-      </div>
-      <div id="cert-gen-form" style="display:none">
-      {% else %}
-      <div id="cert-gen-form">
-      {% endif %}
-        {% if tak_local %}
-        <div class="grid2">
-          <div class="form-group">
-            <label class="form-label">Cert Name</label>
-            <input id="cert-name-input" class="form-input" type="text" value="{{ cfg.tak_cert_name or 'esri-push' }}" placeholder="esri-push">
-          </div>
-          <div class="form-group">
-            <label class="form-label">TAK Group</label>
-            <input id="tak_group" class="form-input" type="text" placeholder="__ANON__" value="{{ cfg.tak_group or '__ANON__' }}">
-          </div>
+      <!-- Step 2 -->
+      <div style="background:rgba(59,130,246,.07);border:1px solid rgba(59,130,246,.2);border-radius:10px;padding:14px 16px;margin-bottom:16px">
+        <div style="font-weight:600;font-size:13px;margin-bottom:6px;color:#60a5fa">② Upload Cert Package</div>
+        <p style="font-size:13px;margin:0 0 10px;color:var(--text-secondary)">
+          Upload the <code>.zip</code> file downloaded from TAK Portal. It should contain a <code>.p12</code>, <code>.pem</code>, and <code>.key</code> file.
+        </p>
+        {% if cert_exists %}
+        <div style="background:rgba(16,185,129,.05);border:1px solid rgba(16,185,129,.2);border-radius:8px;padding:10px 14px;margin-bottom:10px;font-size:13px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+          <span style="color:var(--green)">✓ Certs loaded — <code>{{ cert_pem_path }}</code></span>
+          <button class="btn btn-ghost" style="font-size:12px;padding:4px 12px"
+            onclick="document.getElementById('cert-upload-wrap').style.display='flex'">Replace…</button>
         </div>
-        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-          <button id="cert-gen-btn" class="btn btn-success" onclick="runCertSetup()">🔑 Generate &amp; Enroll</button>
-          <span id="cert-status-msg" style="font-size:13px"></span>
-        </div>
-        <div id="cert-log-box" class="log-box" style="margin-top:12px;display:none"></div>
+        <div id="cert-upload-wrap" style="display:none;align-items:center;gap:12px;flex-wrap:wrap">
         {% else %}
-        <p style="font-size:13px;color:var(--text-secondary)">TAK Server not detected on this host — cannot generate cert locally.</p>
+        <div id="cert-upload-wrap" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
         {% endif %}
+          <input type="file" id="cert-zip-input" accept=".zip" style="font-size:13px;color:var(--text-secondary)">
+          <button class="btn btn-success" onclick="uploadCertZip()">📦 Upload</button>
+          <span id="cert-zip-status" style="font-size:13px"></span>
+        </div>
       </div>
-      </div><!-- end cert-gen-section -->
 
       <div class="section-title">Feature Layer</div>
       <div class="form-group">
@@ -1750,24 +1730,23 @@ function uploadCert(){
 }
 // ── End cert setup ──────────────────────────────────────────────────────────
 
-function toggleAuthMode(){
-  var mode=document.getElementById('tak_auth_mode').value;
-  var restSec=document.getElementById('rest-auth-section');
-  var authSec=document.getElementById('authentik-auth-section');
-  var tlsKpSec=document.getElementById('tls-keypair-section');
-  var fileSec=document.getElementById('file-output-section');
-  var certGen=document.getElementById('cert-gen-section');
-  if(restSec)restSec.style.display=mode==='rest'?'block':'none';
-  if(authSec)authSec.style.display=mode==='authentik'?'block':'none';
-  if(tlsKpSec)tlsKpSec.style.display=mode==='tls_keypair'?'block':'none';
-  if(fileSec)fileSec.style.display=mode==='file'?'block':'none';
-  if(certGen)certGen.style.display=(mode==='cert'||mode==='tls_keypair')?'block':'none';
-  var portEl=document.getElementById('tak_port');
-  if(portEl){
-    if((mode==='rest'||mode==='authentik')&&(portEl.value==='8089'||portEl.value==='8087'))portEl.value='8443';
-    else if((mode==='cert'||mode==='tls_keypair')&&(portEl.value==='8443'||portEl.value==='8087'))portEl.value='8089';
-    else if(mode==='plain'&&(portEl.value==='8443'||portEl.value==='8089'))portEl.value='8087';
-  }
+function uploadCertZip(){
+  var inp=document.getElementById('cert-zip-input');
+  var sta=document.getElementById('cert-zip-status');
+  if(!inp||!inp.files.length){if(sta)sta.textContent='No file selected.';return;}
+  if(sta){sta.style.color='var(--text-dim)';sta.textContent='Uploading…';}
+  var fd=new FormData();
+  fd.append('zip',inp.files[0]);
+  fetch('/api/esri-tak-sync/upload-cert-zip',{method:'POST',body:fd,credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.success){
+        if(sta){sta.style.color='var(--green)';sta.textContent='✓ Loaded: '+d.files.join(', ');}
+        setTimeout(function(){location.reload();},1200);
+      } else {
+        if(sta){sta.style.color='var(--red)';sta.textContent='Error: '+(d.error||'Upload failed');}
+      }
+    }).catch(function(){if(sta){sta.style.color='var(--red)';sta.textContent='Upload failed.';}});
 }
 
 function saveConfig(){
@@ -1775,16 +1754,7 @@ function saveConfig(){
   if(msg){msg.textContent='Saving…';msg.style.color='var(--text-dim)';}
   var payload={
     tak_host:document.getElementById('tak_host').value,
-    tak_port:parseInt(document.getElementById('tak_port').value)||8089,
-    tak_auth_mode:document.getElementById('tak_auth_mode').value,
-    tak_username:(document.getElementById('tak_username')||{value:''}).value,
-    tak_password:(document.getElementById('tak_password')||{value:''}).value,
-    tak_cert_name:(document.getElementById('cert-name-input')||{value:'esri-push'}).value.trim()||'esri-push',
-    tak_username:(document.getElementById('tak_username')||{value:''}).value,
-    tak_password:(document.getElementById('tak_password')||{value:''}).value,
-    cert_file:(document.getElementById('cert_file')||{value:''}).value.trim(),
-    key_file:(document.getElementById('key_file')||{value:''}).value.trim(),
-    output_file:(document.getElementById('output_file')||{value:'/opt/Esri-TAKServer-Sync/cot_output.txt'}).value.trim(),
+    tak_integration_port:parseInt(document.getElementById('tak_integration_port').value)||7001,
     layer_url:document.getElementById('layer_url').value,
     layer_public:document.getElementById('layer_public').value==='1',
     layer_type:document.getElementById('layer_type').value,

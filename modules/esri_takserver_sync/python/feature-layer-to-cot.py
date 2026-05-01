@@ -370,176 +370,64 @@ def build_cot(feature: dict, fm: dict, cot_cfg: dict, icon_cfg: dict | None = No
 
 # ── TAK Server TCP Client ─────────────────────────────────────────────────────
 
-# Default ports per auth mode
-_AUTH_MODE_DEFAULT_PORTS = {
-    "cert":        8089,   # TLS with client certificate (mutual TLS)
-    "tls_keypair": 8089,   # TLS with PEM cert+key, no server verification (Node-RED style)
-    "plain":       8087,   # Plain TCP, no certificate
-    "rest":        8443,   # HTTPS REST API with Basic Auth + client cert
-    "authentik":   8443,   # HTTPS REST API with Basic Auth only (Authentik/LDAP user)
-    "file":        0,      # Write CoT to a local text file, one message per line
-}
-
-
 class TAKClient:
     """
-    TAK Server client.
-
-    auth_mode = "cert"        → TLS with .p12 client certificate (port 8089)
-    auth_mode = "tls_keypair" → TLS with PEM cert+key, no server cert verification (port 8089)
-    auth_mode = "plain"       → Plain TCP, no certificate required (port 8087)
-    auth_mode = "rest"        → HTTPS REST API POST /Marti/api/cot/xml, Basic Auth + client cert (port 8443)
-    auth_mode = "authentik"   → HTTPS REST API POST /Marti/api/cot/xml, Basic Auth only (port 8443)
+    TAK Server client — connects via TLS using a client cert from the
+    TAK Portal cert package (.zip → .p12 / .pem / .key).
     """
 
     def __init__(self, cfg: dict):
-        tak = cfg["tak_server"]
-        self.host       = tak["host"]
-        self.auth_mode  = tak.get("auth_mode", "cert").lower()
-
-        default_port    = _AUTH_MODE_DEFAULT_PORTS.get(self.auth_mode, 8089)
-        self.port       = int(tak.get("port") or default_port)
-
-        self.username   = tak.get("username", "")
-        self.password   = tak.get("password", "")
-        self.cert_path  = tak.get("cert_path", "")
-        self.cert_pass  = tak.get("cert_password", "")
-        self.ca_cert    = tak.get("ca_cert", "")
-        self.cert_file  = tak.get("cert_file", "")   # PEM cert path (tls_keypair mode)
-        self.key_file   = tak.get("key_file", "")    # PEM key path  (tls_keypair mode)
-        self.output_file = tak.get("output_file", "/opt/Esri-TAKServer-Sync/cot_output.txt")
-        self._sock      = None
-        self._session   = None
-        self._file      = None
+        tak            = cfg["tak_server"]
+        self.host      = tak.get("host", "localhost")
+        self.port      = int(tak.get("port") or 8089)
+        self.cert_path = tak.get("cert_path", "")
+        self.cert_pass = tak.get("cert_password", "atakatak")
+        self._sock     = None
 
     # ── Connection ────────────────────────────────────────────────────────────
 
     def connect(self):
-        if self.auth_mode == "file":
-            os.makedirs(os.path.dirname(self.output_file), exist_ok=True)
-            self._file = open(self.output_file, "w", encoding="utf-8")
-            log.info("File mode: writing CoT to %s", self.output_file)
-            return
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode    = ssl.CERT_NONE
 
-        if self.auth_mode == "authentik":
-            # Authentik/LDAP: Basic Auth over HTTPS. TAK Server 8443 enforces
-            # mutual TLS so a client cert is still required alongside credentials.
-            self._session = requests.Session()
-            self._session.auth = (self.username, self.password)
-            self._session.verify = False
-            import urllib3
-            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-            if self.cert_file and self.key_file and os.path.exists(self.cert_file) and os.path.exists(self.key_file):
-                self._session.cert = (self.cert_file, self.key_file)
-                log.info("Authentik/LDAP mode: using client cert %s", self.cert_file)
-            elif os.path.exists(self.cert_path.replace(".p12", "-cert.pem")):
-                pem_cert = self.cert_path.replace(".p12", "-cert.pem")
-                pem_key  = self.cert_path.replace(".p12", "-key.pem")
-                self._session.cert = (pem_cert, pem_key)
-                log.info("Authentik/LDAP mode: using client cert %s", pem_cert)
-            else:
-                log.warning("Authentik/LDAP mode: no client cert found — TAK Server may reject the connection")
-            log.info("Authentik/LDAP mode: will POST CoT to https://%s:%d/Marti/api/cot/xml (Basic Auth)",
-                     self.host, self.port)
-            return
+        # Derive PEM sidecar paths from the p12 path
+        base     = self.cert_path.rsplit('.', 1)[0] if self.cert_path else ""
+        pem_cert = base + ".pem"
+        pem_key  = base + ".key"
 
-        if self.auth_mode == "rest":
-            # REST mode: Basic Auth + client cert (mutual TLS against 8443).
-            self._session = requests.Session()
-            self._session.auth = (self.username, self.password)
-
-            pem_cert = self.cert_path.replace(".p12", "-cert.pem")
-            pem_key  = self.cert_path.replace(".p12", "-key.pem")
-            if os.path.exists(pem_cert) and os.path.exists(pem_key):
-                self._session.cert = (pem_cert, pem_key)
-            else:
-                log.warning(
-                    "REST mode: PEM sidecars not found (%s / %s). "
-                    "TAK Server 8443 requires a client cert — set up the cert on the Config tab.",
-                    pem_cert, pem_key
-                )
-
-            if not self.ca_cert:
-                self._session.verify = False
-                import urllib3
-                urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-            else:
-                self._session.verify = self.ca_cert
-
-            log.info("REST mode: will POST CoT to https://%s:%d/Marti/api/cot/xml (Basic Auth + mTLS)",
-                     self.host, self.port)
-            return
+        if os.path.exists(pem_cert) and os.path.exists(pem_key):
+            ctx.load_cert_chain(pem_cert, pem_key)
+            log.info("Using client cert: %s", pem_cert)
+        elif self.cert_path and os.path.exists(self.cert_path):
+            log.warning("PEM sidecar not found (%s) — cert-only .pem available, upload zip again", pem_cert)
+        else:
+            log.warning("No cert configured — connecting without client cert")
 
         raw = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         raw.settimeout(10)
         raw.connect((self.host, self.port))
-
-        if self.auth_mode == "cert":
-            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-            if self.ca_cert:
-                ctx.load_verify_locations(self.ca_cert)
-                ctx.verify_mode    = ssl.CERT_REQUIRED
-                ctx.check_hostname = True
-            else:
-                ctx.check_hostname = False
-                ctx.verify_mode    = ssl.CERT_NONE
-
-            pem_cert = self.cert_path.replace(".p12", "-cert.pem")
-            pem_key  = self.cert_path.replace(".p12", "-key.pem")
-            if os.path.exists(pem_cert) and os.path.exists(pem_key):
-                ctx.load_cert_chain(pem_cert, pem_key)
-            else:
-                log.warning(
-                    "PEM sidecars not found (%s / %s). "
-                    "Run setup-cert.py or re-deploy to generate them.",
-                    pem_cert, pem_key
-                )
-            self._sock = ctx.wrap_socket(raw, server_hostname=self.host)
-
-        elif self.auth_mode == "tls_keypair":
-            # TLS with direct PEM cert+key — no server cert verification (matches Node-RED flow).
-            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-            ctx.check_hostname = False
-            ctx.verify_mode    = ssl.CERT_NONE
-            if self.cert_file and self.key_file:
-                if os.path.exists(self.cert_file) and os.path.exists(self.key_file):
-                    ctx.load_cert_chain(self.cert_file, self.key_file)
-                else:
-                    log.warning("tls_keypair: cert/key files not found (%s / %s)", self.cert_file, self.key_file)
-            else:
-                log.warning("tls_keypair: no cert_file/key_file configured — connecting without client cert")
-            self._sock = ctx.wrap_socket(raw, server_hostname=self.host)
-
-        else:
-            # Plain TCP — no TLS, no cert
-            self._sock = raw
-
+        self._sock = ctx.wrap_socket(raw, server_hostname=self.host)
         self._sock.settimeout(None)
-        log.info("Connected to TAK Server %s:%d (auth_mode=%s)", self.host, self.port, self.auth_mode)
+        log.info("Connected to TAK Server %s:%d (TLS)", self.host, self.port)
 
     # ── Health check ──────────────────────────────────────────────────────────
 
     def is_alive(self) -> bool:
-        """
-        Check if the connection is still open.
-        Uses select() so it works on both plain and SSL sockets
-        (SSL sockets don't support MSG_PEEK).
-        """
         if not self._sock:
             return False
         try:
             import select as _select
             readable, _, _ = _select.select([self._sock], [], [], 0)
             if not readable:
-                return True          # nothing waiting — socket is healthy
-            # Data (or EOF) is pending — do a real recv to distinguish
+                return True
             old_timeout = self._sock.gettimeout()
             self._sock.settimeout(0.1)
             try:
                 data = self._sock.recv(1)
-                return len(data) > 0  # 0 bytes == clean close by peer
+                return len(data) > 0
             except (BlockingIOError, ssl.SSLWantReadError):
-                return True           # would block — still open
+                return True
             except (OSError, ssl.SSLError):
                 return False
             finally:
@@ -550,24 +438,6 @@ class TAKClient:
     # ── Send ──────────────────────────────────────────────────────────────────
 
     def send(self, cot_xml: str):
-        """Send one CoT event."""
-        if self.auth_mode == "file":
-            self._file.write(cot_xml + "\n")
-            self._file.flush()
-            return
-
-        if self.auth_mode in ("rest", "authentik"):
-            url = f"https://{self.host}:{self.port}/Marti/api/cot/xml"
-            resp = self._session.post(
-                url, data=cot_xml.encode("utf-8"),
-                headers={"Content-Type": "application/xml"},
-                timeout=10
-            )
-            if resp.status_code not in (200, 201, 204):
-                raise RuntimeError(f"REST CoT POST returned HTTP {resp.status_code}: {resp.text[:200]}")
-            return
-
-        # TCP / TLS path
         data = (cot_xml + "\n").encode("utf-8")
         try:
             if not self._sock:
@@ -579,28 +449,15 @@ class TAKClient:
             self.connect()
             self._sock.sendall(data)
 
-
     # ── Close ─────────────────────────────────────────────────────────────────
 
     def close(self):
-        if self._file:
-            try:
-                self._file.close()
-            except Exception:
-                pass
-        self._file = None
         if self._sock:
             try:
                 self._sock.close()
             except Exception:
                 pass
         self._sock = None
-        if self._session:
-            try:
-                self._session.close()
-            except Exception:
-                pass
-        self._session = None
 
 
 # ── Delta Tracker ─────────────────────────────────────────────────────────────
