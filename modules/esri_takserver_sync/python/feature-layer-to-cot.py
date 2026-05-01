@@ -543,8 +543,8 @@ def main():
     tak   = TAKClient(cfg)
 
     log.info(
-        "Poll loop started (interval=%ds, auth_mode=%s, delta=%s)",
-        poll_interval, tak.auth_mode, delta.enabled
+        "Poll loop started (interval=%ds, host=%s:%d, delta=%s)",
+        poll_interval, tak.host, tak.port, delta.enabled
     )
 
     while _running:
