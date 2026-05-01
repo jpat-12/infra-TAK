@@ -70,7 +70,7 @@ def _run_esri_tak_sync_install():
         config_data = {
             "tak_server": {
                 "host":          (cfg.get('tak_host') or 'localhost').strip(),
-                "port":          int(cfg.get('tak_integration_port') or 8089),
+                "port":          int(cfg.get('tak_port') or 8089),
                 "cert_path":     os.path.join(ESRI_TAK_SYNC_DIR, 'certs', ''),
                 "cert_password": "atakatak",
                 "ca_cert":       ""
@@ -488,7 +488,7 @@ def esri_tak_sync_page():
 def esri_tak_sync_save_config():
     data = request.get_json(silent=True) or {}
     cfg  = _esri_tak_sync_load_config()
-    for key in ['tak_host', 'tak_integration_port',
+    for key in ['tak_host', 'tak_port', 'tak_integration_port',
                 'layer_url', 'layer_public', 'layer_type', 'esri_username',
                 'esri_password', 'portal_url', 'poll_interval', 'page_size',
                 'lat_field', 'lon_field', 'uid_field', 'uid_prefix',
@@ -508,8 +508,8 @@ def esri_tak_sync_save_config():
             fm = existing.setdefault('field_mapping', {})
             dt = existing.setdefault('delta', {})
             ts['ca_cert'] = ''  # always clear — server cert verification disabled
-            if cfg.get('tak_host'):             ts['host'] = cfg['tak_host'].strip()
-            if cfg.get('tak_integration_port'): ts['port'] = int(cfg['tak_integration_port'])
+            if cfg.get('tak_host'): ts['host'] = cfg['tak_host'].strip()
+            if cfg.get('tak_port'): ts['port'] = int(cfg['tak_port'])
             if cfg.get('layer_url'):     fl['url']  = cfg['layer_url'].strip()
             if cfg.get('layer_type'):    fl['layer_type'] = cfg['layer_type'].strip()
             if 'layer_public' in cfg:    fl['public'] = bool(cfg['layer_public'])
@@ -1039,6 +1039,10 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:'DM Sans',s
             <input id="tak_integration_port" class="form-input" type="number" placeholder="7001"
               value="{{ cfg.get('tak_integration_port', '7001') }}"
               oninput="document.getElementById('integration-port-display').textContent=this.value||'7001'">
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="form-label">CoT Port <span style="font-weight:400;color:var(--text-dim)">(TAK Server TLS, default 8089)</span></label>
+            <input id="tak_port" class="form-input" type="number" placeholder="8089" value="{{ cfg.get('tak_port', '8089') }}">
           </div>
         </div>
       </div>
@@ -1785,6 +1789,7 @@ function saveConfig(){
   if(msg){msg.textContent='Saving…';msg.style.color='var(--text-dim)';}
   var payload={
     tak_host:document.getElementById('tak_host').value,
+    tak_port:parseInt(document.getElementById('tak_port').value)||8089,
     tak_integration_port:parseInt(document.getElementById('tak_integration_port').value)||7001,
     layer_url:document.getElementById('layer_url').value,
     layer_public:document.getElementById('layer_public').value==='1',

@@ -397,7 +397,7 @@ class TAKClient:
         pem_key  = base + ".key"
 
         if os.path.exists(pem_cert) and os.path.exists(pem_key):
-            ctx.load_cert_chain(pem_cert, pem_key)
+            ctx.load_cert_chain(pem_cert, pem_key, password=self.cert_pass or None)
             log.info("Using client cert: %s", pem_cert)
         elif self.cert_path and os.path.exists(self.cert_path):
             log.warning("PEM sidecar not found (%s) — cert-only .pem available, upload zip again", pem_cert)
