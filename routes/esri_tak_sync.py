@@ -455,7 +455,21 @@ def esri_tak_sync_page():
             log_tail = ''.join(lines[-50:])
         except Exception:
             pass
-    cert_pem = os.path.join(ESRI_TAK_SYNC_DIR, 'certs', 'esri-push-cert.pem')
+    # Derive cert status from live config.json cert_path
+    live_cfg_path = os.path.join(ESRI_TAK_SYNC_DIR, 'config.json')
+    live_cert_path = ''
+    if os.path.exists(live_cfg_path):
+        try:
+            with open(live_cfg_path) as _lcf:
+                _lc = json.load(_lcf)
+            live_cert_path = _lc.get('tak_server', {}).get('cert_path', '')
+        except Exception:
+            pass
+    if live_cert_path:
+        base = live_cert_path.rsplit('.', 1)[0]
+        cert_pem = base + '.pem'
+    else:
+        cert_pem = os.path.join(ESRI_TAK_SYNC_DIR, 'certs', 'esri-push-cert.pem')
     cert_exists = os.path.exists(cert_pem)
     tak_local   = os.path.isdir('/opt/tak')
     return make_response(render_template_string(ESRI_TAK_SYNC_TEMPLATE,
@@ -545,23 +559,29 @@ def esri_tak_sync_upload_cert_zip():
                         p12_name = basename
         if not extracted:
             return jsonify({'error': 'No .p12, .pem, or .key files found in zip'}), 400
-        # Update live config.json cert_path and settings
+        passphrase = request.form.get('passphrase', '').strip() or 'atakatak'
+        cert_pem_display = ''
         if p12_name:
-            p12_path = os.path.join(certs_dir, p12_name)
+            p12_path  = os.path.join(certs_dir, p12_name)
+            pem_path  = p12_path.rsplit('.', 1)[0] + '.pem'
+            cert_pem_display = pem_path
             config_path = os.path.join(ESRI_TAK_SYNC_DIR, 'config.json')
             if os.path.exists(config_path):
                 try:
                     with open(config_path) as cf:
                         existing = json.load(cf)
-                    existing.setdefault('tak_server', {})['cert_path'] = p12_path
+                    ts = existing.setdefault('tak_server', {})
+                    ts['cert_path']     = p12_path
+                    ts['cert_password'] = passphrase
                     with open(config_path, 'w') as cf:
                         json.dump(existing, cf, indent=2)
                 except Exception:
                     pass
             settings = _esri_tak_sync_load_config()
-            settings['tak_cert_path'] = p12_path
+            settings['tak_cert_path']     = p12_path
+            settings['tak_cert_password'] = passphrase
             _esri_tak_sync_save_config(settings)
-        return jsonify({'success': True, 'files': extracted})
+        return jsonify({'success': True, 'files': extracted, 'cert_pem': cert_pem_display})
     except zipfile.BadZipFile:
         return jsonify({'error': 'Invalid zip file'}), 400
     finally:
@@ -1030,18 +1050,23 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:'DM Sans',s
           Upload the <code>.zip</code> file downloaded from TAK Portal. It should contain a <code>.p12</code>, <code>.pem</code>, and <code>.key</code> file.
         </p>
         {% if cert_exists %}
-        <div style="background:rgba(16,185,129,.05);border:1px solid rgba(16,185,129,.2);border-radius:8px;padding:10px 14px;margin-bottom:10px;font-size:13px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+        <div id="cert-loaded-banner" style="background:rgba(16,185,129,.05);border:1px solid rgba(16,185,129,.2);border-radius:8px;padding:10px 14px;margin-bottom:10px;font-size:13px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
           <span style="color:var(--green)">✓ Certs loaded — <code>{{ cert_pem_path }}</code></span>
           <button class="btn btn-ghost" style="font-size:12px;padding:4px 12px"
-            onclick="document.getElementById('cert-upload-wrap').style.display='flex'">Replace…</button>
+            onclick="document.getElementById('cert-upload-wrap').style.display='flex';this.closest('[id=cert-loaded-banner]').style.display='none'">Replace…</button>
         </div>
-        <div id="cert-upload-wrap" style="display:none;align-items:center;gap:12px;flex-wrap:wrap">
+        <div id="cert-upload-wrap" style="display:none;flex-wrap:wrap;gap:10px">
         {% else %}
-        <div id="cert-upload-wrap" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <div id="cert-upload-wrap" style="display:flex;flex-wrap:wrap;gap:10px">
         {% endif %}
-          <input type="file" id="cert-zip-input" accept=".zip" style="font-size:13px;color:var(--text-secondary)">
+          <input type="file" id="cert-zip-input" accept=".zip" style="font-size:13px;color:var(--text-secondary);align-self:center">
+          <input type="password" id="cert-passphrase" class="form-input" placeholder="Passphrase (default: atakatak)" style="max-width:220px">
           <button class="btn btn-success" onclick="uploadCertZip()">📦 Upload</button>
-          <span id="cert-zip-status" style="font-size:13px"></span>
+          <span id="cert-zip-status" style="font-size:13px;align-self:center"></span>
+        </div>
+        <div id="cert-save-prompt" style="display:none;margin-top:10px;background:rgba(245,158,11,.07);border:1px solid rgba(245,158,11,.3);border-radius:8px;padding:10px 14px;font-size:13px;display:flex;align-items:center;gap:12px">
+          <span style="color:#f59e0b">⚠ Certs uploaded — save your config to apply.</span>
+          <button class="btn btn-primary" style="font-size:12px;padding:4px 14px" onclick="saveConfig()">Save Config</button>
         </div>
       </div>
 
@@ -1733,16 +1758,22 @@ function uploadCert(){
 function uploadCertZip(){
   var inp=document.getElementById('cert-zip-input');
   var sta=document.getElementById('cert-zip-status');
+  var pp=document.getElementById('cert-passphrase');
   if(!inp||!inp.files.length){if(sta)sta.textContent='No file selected.';return;}
   if(sta){sta.style.color='var(--text-dim)';sta.textContent='Uploading…';}
   var fd=new FormData();
   fd.append('zip',inp.files[0]);
+  if(pp&&pp.value.trim())fd.append('passphrase',pp.value.trim());
   fetch('/api/esri-tak-sync/upload-cert-zip',{method:'POST',body:fd,credentials:'same-origin'})
     .then(function(r){return r.json();})
     .then(function(d){
       if(d.success){
         if(sta){sta.style.color='var(--green)';sta.textContent='✓ Loaded: '+d.files.join(', ');}
-        setTimeout(function(){location.reload();},1200);
+        var banner=document.getElementById('cert-loaded-banner');
+        if(banner){banner.querySelector('span').textContent='✓ Certs loaded — '+d.cert_pem;banner.style.display='flex';}
+        document.getElementById('cert-upload-wrap').style.display='none';
+        var prompt=document.getElementById('cert-save-prompt');
+        if(prompt)prompt.style.display='flex';
       } else {
         if(sta){sta.style.color='var(--red)';sta.textContent='Error: '+(d.error||'Upload failed');}
       }
