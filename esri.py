@@ -1491,7 +1491,6 @@ def register_routes(app, login_required, load_settings, save_settings):
         if not raw_url or not field:
             return jsonify({'ok': False, 'error': 'url and field parameters are required'})
 
-        # Build /query endpoint
         import re as _re
         base = raw_url.rstrip('/')
         base = _re.sub(r'/\d+/query$', '', base, flags=_re.IGNORECASE)
@@ -1500,38 +1499,47 @@ def register_routes(app, login_required, load_settings, save_settings):
             base = base + '/0'
         query_url = base + '/query'
 
-        params = {
-            'where': '1=1',
-            'outFields': field,
-            'returnDistinctValues': 'true',
-            'orderByFields': field,
-            'f': 'json',
-        }
-        if token:
-            params['token'] = token
+        # Paginate through all features and deduplicate server-side.
+        # returnDistinctValues is unreliable — many services ignore it or cap
+        # the result count to a very small number when combined with orderByFields.
+        seen = set()
+        offset = 0
+        page_size = 1000
 
-        full_url = query_url + '?' + urllib.parse.urlencode(params)
+        def _fetch_page(offset):
+            params = {
+                'where': '1=1',
+                'outFields': field,
+                'resultOffset': offset,
+                'resultRecordCount': page_size,
+                'f': 'json',
+            }
+            if token:
+                params['token'] = token
+            url = query_url + '?' + urllib.parse.urlencode(params)
+            req = urllib.request.Request(url, headers={'User-Agent': 'infra-TAK/esri-bridge'})
+            with urllib.request.urlopen(req, timeout=15) as r:
+                return json.loads(r.read().decode())
+
         try:
-            req = urllib.request.Request(full_url, headers={'User-Agent': 'infra-TAK/esri-bridge'})
-            with urllib.request.urlopen(req, timeout=10) as r:
-                data = json.loads(r.read().decode())
+            while True:
+                data = _fetch_page(offset)
+                if 'error' in data:
+                    return jsonify({'ok': False, 'error': data['error'].get('message', str(data['error']))})
+                features = data.get('features', [])
+                for feat in features:
+                    v = feat.get('attributes', {}).get(field)
+                    if v is not None:
+                        sv = str(v).strip()
+                        if sv:
+                            seen.add(sv)
+                if not data.get('exceededTransferLimit') or len(features) < page_size:
+                    break
+                offset += len(features)
         except Exception as e:
             return jsonify({'ok': False, 'error': f'Query failed: {e}'})
 
-        if 'error' in data:
-            return jsonify({'ok': False, 'error': data['error'].get('message', str(data['error']))})
-
-        seen = set()
-        values = []
-        for feat in data.get('features', []):
-            v = feat.get('attributes', {}).get(field)
-            if v is not None:
-                sv = str(v).strip()
-                if sv and sv not in seen:
-                    seen.add(sv)
-                    values.append(sv)
-
-        return jsonify({'ok': True, 'values': sorted(values)})
+        return jsonify({'ok': True, 'values': sorted(seen)})
 
     # ── Deploy ────────────────────────────────────────────────────────────────
 
