@@ -57,15 +57,30 @@ CONFIG_DIR = os.environ.get('CONFIG_DIR') or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), '.config'
 )
 
+# TAK cert directory — already volume-mounted into the Node-RED container as /certs.
+# Esri certs are saved here so Node-RED can read them; distinct filenames avoid
+# collision with the main TAK server / nodered certs.
+_TAK_CERT_HOST_DIR = '/opt/tak/certs/files'
+_TAK_CERT_NR_DIR   = '/certs'
+
 def _cert_dir():
-    return os.path.join(CONFIG_DIR, 'esri_certs')
+    return _TAK_CERT_HOST_DIR
 
 def _cert_paths():
+    """Host-filesystem paths used when saving uploaded certs and checking existence."""
     d = _cert_dir()
     return {
-        'cert': os.path.join(d, 'client.pem'),
-        'key':  os.path.join(d, 'client.key'),
-        'ca':   os.path.join(d, 'ca.pem'),
+        'cert': os.path.join(d, 'esri_client.pem'),
+        'key':  os.path.join(d, 'esri_client.key'),
+        'ca':   os.path.join(d, 'esri_ca.pem'),
+    }
+
+def _cert_nr_paths():
+    """Container-side paths written into the Node-RED TLS config node."""
+    return {
+        'cert': f'{_TAK_CERT_NR_DIR}/esri_client.pem',
+        'key':  f'{_TAK_CERT_NR_DIR}/esri_client.key',
+        'ca':   f'{_TAK_CERT_NR_DIR}/esri_ca.pem',
     }
 
 def _run_openssl(*args):
@@ -349,11 +364,12 @@ def _generate_flow_nodes(cfg):
     tak_host  = cfg.get('tak_host', '')
     tak_port  = str(int(cfg.get('tak_port', 8089)))
     log_file  = cfg.get('log_file', 'cot-logged.txt')
-    # Cert paths come from the upload directory, not free-text config
-    _cp = _cert_paths()
-    tls_cert = _cp['cert'] if os.path.exists(_cp['cert']) else ''
-    tls_key  = _cp['key']  if os.path.exists(_cp['key'])  else ''
-    tls_ca   = _cp['ca']   if os.path.exists(_cp['ca'])   else ''
+    # Check existence using host paths; give Node-RED the container-side /certs/ paths.
+    _hcp = _cert_paths()    # host filesystem (for os.path.exists)
+    _ncp = _cert_nr_paths() # container filesystem (written into TLS node)
+    tls_cert = _ncp['cert'] if os.path.exists(_hcp['cert']) else ''
+    tls_key  = _ncp['key']  if os.path.exists(_hcp['key'])  else ''
+    tls_ca   = _ncp['ca']   if os.path.exists(_hcp['ca'])   else ''
     poll      = str(int(cfg.get('poll_interval', 60)))
 
     url_fn  = _build_url_fn(cfg.get('survey_url', ''), cfg.get('token', ''))
@@ -1392,10 +1408,10 @@ def register_routes(app, login_required, load_settings, save_settings):
                 caf.save(ca_path)
             status['ca_name'] = caf.filename
 
-        # Restrict permissions so private key isn't world-readable
+        # 644 so the Node-RED container user can read them (same as all TAK certs in this dir).
         for p in (cert_path, key_path, ca_path):
             if os.path.exists(p):
-                try: os.chmod(p, 0o600)
+                try: os.chmod(p, 0o644)
                 except Exception: pass
 
         uploaded_at = _dt.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')
