@@ -999,6 +999,19 @@ def detect_modules():
                 nodered_running = True
     modules['nodered'] = {'name': 'Node-RED', 'installed': nodered_installed, 'running': nodered_running,
         'description': 'Flow-based automation & integrations', 'icon': '🔴', 'icon_url': NODERED_LOGO_URL_2, 'route': '/nodered', 'priority': 6}
+    # Esri CoT Bridge — always available in marketplace; "installed" once the flow has been deployed
+    _esri_cfg = settings.get('esri_cot_bridge', {})
+    esri_deployed = bool(_esri_cfg.get('deployed', False))
+    modules['esri_cot_bridge'] = {
+        'name': 'Esri CoT Bridge',
+        'installed': esri_deployed,
+        'running': esri_deployed and nodered_running,
+        'description': 'Survey123 → TAKServer via Node-RED — no Python required',
+        'icon': '\U0001f5fa',
+        'route': '/esri',
+        'priority': 7,
+        'requires': ['nodered'],
+    }
     # CloudTAK (local or remote deployment target)
     cloudtak_dir = os.path.expanduser('~/CloudTAK')
     cloudtak_cfg = _get_cloudtak_deployment_config(settings)
@@ -1351,7 +1364,9 @@ def render_sidebar(modules, active_path, takwerx_logo_url=None):
     nr = modules.get('nodered', {})
     if nr.get('installed'):
         parts.append(link('/nodered', f'<img src="{html.escape(NODERED_LOGO_URL)}" alt="" class="nav-icon" style="height:24px;width:auto;max-width:72px;object-fit:contain;display:block"><span>Node-RED</span>'))
-    parts.append(link('/esri', '<span class="nav-icon material-symbols-outlined">&#128506;</span><span>Esri CoT Bridge</span>'))
+    esri = modules.get('esri_cot_bridge', {})
+    if esri.get('installed'):
+        parts.append(link('/esri', '<span class="nav-icon material-symbols-outlined">map</span><span>Esri CoT Bridge</span>'))
     email = modules.get('emailrelay', {})
     if email.get('installed'):
         parts.append(link('/emailrelay', '<span class="nav-icon material-symbols-outlined">outgoing_mail</span>Email Relay'))
