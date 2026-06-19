@@ -1351,6 +1351,7 @@ def render_sidebar(modules, active_path, takwerx_logo_url=None):
     nr = modules.get('nodered', {})
     if nr.get('installed'):
         parts.append(link('/nodered', f'<img src="{html.escape(NODERED_LOGO_URL)}" alt="" class="nav-icon" style="height:24px;width:auto;max-width:72px;object-fit:contain;display:block"><span>Node-RED</span>'))
+    parts.append(link('/esri', '<span class="nav-icon material-symbols-outlined">&#128506;</span><span>Esri CoT Bridge</span>'))
     email = modules.get('emailrelay', {})
     if email.get('installed'):
         parts.append(link('/emailrelay', '<span class="nav-icon material-symbols-outlined">outgoing_mail</span>Email Relay'))
@@ -61809,6 +61810,12 @@ def _post_update_auto_deploy():
         threading.Thread(target=_run_post_update_guarded, daemon=True).start()
     except Exception as e:
         print(f"Post-update auto-deploy error: {e}")
+
+try:
+    import esri as _esri_module
+    _esri_module.register_routes(app, login_required, load_settings, save_settings)
+except Exception as _e:
+    print(f'[esri] Failed to register Esri CoT Bridge module: {_e}', flush=True)
 
 _startup_migrations()
 _post_update_auto_deploy()
