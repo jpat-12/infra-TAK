@@ -154,22 +154,43 @@ def _build_url_fn(survey_url, token):
     ])
 
 
-def _build_cot_fn(field_map, icon_map, cot_type):
+def _build_cot_fn(field_map, icon_map, cot_type, remarks_fields, include_attachments, survey_url, token):
+    import re as _re
     fm = field_map or {}
     icons = icon_map if icon_map else INCIDENT_ICONS
-    lines = [
-        '// Field + icon mapping configured via infra-TAK Esri CoT Bridge',
-        f"const F_CALLSIGN    = '{_js(fm.get('callsign', 'team_callsign'))}';",
-        f"const F_MISSION     = '{_js(fm.get('mission_number', 'mission_number'))}';",
-        f"const F_SORTIE      = '{_js(fm.get('sortie_number', 'sortie_number'))}';",
-        f"const F_LEADER_NAME = '{_js(fm.get('leader_name', 'team_leader_name'))}';",
-        f"const F_LEADER_CAPID= '{_js(fm.get('leader_capid', 'team_leader_capid'))}';",
-        f"const F_WAYPOINT    = '{_js(fm.get('waypoint_type', 'select_a_waypoint_of_what_you_a'))}';",
-        f"const COT_TYPE      = '{_js(cot_type or DEFAULT_COT_TYPE)}';",
+
+    # Derive the FeatureServer/0 base URL for attachment queries
+    att_base = _re.sub(r'/\d+/query$', '', (survey_url or '').rstrip('/'), flags=_re.IGNORECASE)
+    att_base = _re.sub(r'/query$', '', att_base, flags=_re.IGNORECASE)
+    if not _re.search(r'/\d+$', att_base):
+        att_base = att_base + '/0'
+
+    remarks_json = json.dumps(remarks_fields or [])
+
+    common = [
+        '// Configured via infra-TAK Esri CoT Bridge',
+        f"const F_CALLSIGN = '{_js(fm.get('callsign', 'team_callsign'))}';",
+        f"const F_WAYPOINT = '{_js(fm.get('waypoint_type', 'select_a_waypoint_of_what_you_a'))}';",
+        f"const COT_TYPE   = '{_js(cot_type or DEFAULT_COT_TYPE)}';",
+        f'const REMARKS_FIELDS = {remarks_json};',
+        f"const INCLUDE_ATTACHMENTS = {json.dumps(bool(include_attachments))};",
+        f"const ATT_BASE_URL = '{_js(att_base)}';",
+        f"const SURVEY_TOKEN = '{_js(token or '')}';",
         '',
         f'const iconPaths = {json.dumps(icons, indent=2)};',
         f"const defaultIcon = '{_js(DEFAULT_ICON)}';",
         'function getIcon(v) { return iconPaths[v] || defaultIcon; }',
+        '',
+        'function buildRemarks(a, lat, lon, callsign, creationDateStr, objectid) {',
+        '    const parts = REMARKS_FIELDS.map(r => {',
+        "        const v = (a[r.field] !== null && a[r.field] !== undefined) ? String(a[r.field]) : '';",
+        "        return v ? r.label + ': ' + v : null;",
+        '    }).filter(Boolean);',
+        "    parts.push('Lat: ' + lat + ', Lon: ' + lon);",
+        "    parts.push('ObjectID: ' + objectid);",
+        "    if (creationDateStr) parts.push('Submitted: ' + creationDateStr);",
+        "    return parts.join(', ');",
+        '}',
         '',
         'let data = msg.payload;',
         "if (typeof data === 'string') {",
@@ -178,61 +199,106 @@ def _build_cot_fn(field_map, icon_map, cot_type):
         '    }',
         '}',
         'if (!data || !data.features || data.features.length === 0) {',
-        "    node.warn('No features from Survey123');",
-        "    node.status({fill: 'yellow', shape: 'ring', text: 'no features'});",
-        '    return null;',
+        "    node.status({fill: 'yellow', shape: 'ring', text: 'no features'}); return null;",
         '}',
         'const now = new Date();',
         'const stale = new Date(now.getTime() + 5 * 60 * 1000);',
         'const timeStr = now.toISOString();',
         'const staleStr = stale.toISOString();',
-        'const events = [];',
-        'for (const feature of data.features) {',
-        '    const a = feature.attributes;',
-        '    const geom = feature.geometry;',
-        '    if (!geom || geom.x == null || geom.y == null) continue;',
-        '    const lat = geom.y, lon = geom.x;',
-        '    const objectid = a.objectid;',
-        "    const callsign   = a[F_CALLSIGN]     || 'UNKNOWN';",
-        "    const missionNum = a[F_MISSION]       || '';",
-        "    const sortieNum  = a[F_SORTIE]        || '';",
-        "    const leaderName = a[F_LEADER_NAME]   || '';",
-        "    const leaderCapid= a[F_LEADER_CAPID]  || '';",
-        "    const waypointType = a[F_WAYPOINT]    || '';",
-        '    const creationDate = a.CreationDate;',
-        '    const iconPath = getIcon(waypointType);',
-        '    const creationDateStr = creationDate',
-        "        ? new Date(creationDate).toISOString().replace('T', ' ').replace('Z', '').slice(0, 23)",
-        "        : '';",
-        "    const remarks = 'Mission Number: ' + missionNum",
-        "        + ', Sortie Number: ' + sortieNum",
-        "        + ', Team Leader Name: ' + leaderName",
-        "        + ', Team Leader CAPID: ' + leaderCapid",
-        "        + ', Callsign: ' + callsign",
-        "        + ', Latitude: ' + lat + ', Longitude: ' + lon",
-        "        + ', TimeSubmitted: ' + creationDateStr",
-        "        + ', ObjectID: ' + objectid;",
-        # Template literal — double quotes inside need \" in JSON but are fine as-is in Python str
-        '    const event = `<?xml version="1.0" encoding="UTF-8"?>'
+    ]
+
+    cot_tpl = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
         '<event version="2.0" uid="Survey123_${objectid}" type="${COT_TYPE}" '
         'time="${timeStr}" start="${timeStr}" stale="${staleStr}" how="m-g">'
-        '<point lat="${lat}" lon="${lon}" hae="0" ce="10.0" le="2.0" />'
+        '<point lat="${lat}" lon="${lon}" hae="0" ce="10.0" le="2.0"/>'
         '<detail><UID>Survey123_${callsign} ${creationDateStr}</UID>'
-        '<usericon iconsetpath="${iconPath}" />'
+        '<usericon iconsetpath="${iconPath}"/>'
         '<remarks>${remarks}</remarks>'
-        '<contact callsign="${callsign}" />'
-        '<track speed="0" course="0" /></detail></event>`;',
-        '    events.push(event);',
-        '}',
-        'if (events.length === 0) {',
-        "    node.warn('No valid features to convert');",
-        "    node.status({fill: 'yellow', shape: 'ring', text: 'no valid features'});",
-        '    return null;',
-        '}',
-        "msg.payload = events.join('\\n');",
-        "node.status({fill: 'green', shape: 'dot', text: events.length + ' events sent'});",
-        'return msg;',
-    ]
+        '<contact callsign="${callsign}"/>'
+        '<track speed="0" course="0"/>${fileshareXml}</detail></event>'
+    )
+
+    if include_attachments:
+        lines = common + [
+            "const https = require('https');",
+            "const http  = require('http');",
+            'function fetchJson(url) {',
+            '    return new Promise(resolve => {',
+            "        const lib = url.startsWith('https') ? https : http;",
+            "        try { lib.get(url, res => { let d = ''; res.on('data', c => d += c);",
+            "            res.on('end', () => { try { resolve(JSON.parse(d)); } catch { resolve({}); } });",
+            "        }).on('error', () => resolve({})); } catch { resolve({}); }",
+            '    });',
+            '}',
+            '',
+            '(async () => {',
+            '    const events = [];',
+            '    for (const feature of data.features) {',
+            '        const a = feature.attributes;',
+            '        const geom = feature.geometry;',
+            '        if (!geom || geom.x == null || geom.y == null) continue;',
+            '        const lat = geom.y, lon = geom.x;',
+            '        const objectid = a.objectid || a.OBJECTID || a.ObjectId;',
+            "        const callsign = a[F_CALLSIGN] || 'UNKNOWN';",
+            "        const waypointType = a[F_WAYPOINT] || '';",
+            '        const creationDate = a.CreationDate || a.creationdate;',
+            '        const creationDateStr = creationDate',
+            "            ? new Date(creationDate).toISOString().replace('T', ' ').replace('Z', '').slice(0, 23)",
+            "            : '';",
+            '        const iconPath = getIcon(waypointType);',
+            '        const remarks = buildRemarks(a, lat, lon, callsign, creationDateStr, objectid);',
+            "        let fileshareXml = '';",
+            '        if (ATT_BASE_URL && objectid != null) {',
+            "            const tq = SURVEY_TOKEN ? '&token=' + SURVEY_TOKEN : '';",
+            "            const attData = await fetchJson(ATT_BASE_URL + '/' + objectid + '/attachments?f=json' + tq);",
+            "            for (const att of (attData.attachmentInfos || [])) {",
+            "                const ts = SURVEY_TOKEN ? '?token=' + SURVEY_TOKEN : '';",
+            "                const dlUrl = ATT_BASE_URL + '/' + objectid + '/attachments/' + att.id + ts;",
+            '                fileshareXml += `<fileshare filename="${att.name}" senderUrl="${dlUrl}" senderCallsign="${callsign}" sha256="" sizeInBytes="${att.size || 0}"/>`;',
+            '            }',
+            '        }',
+            f'        const event = `{cot_tpl}`;',
+            '        events.push(event);',
+            '    }',
+            '    if (events.length === 0) {',
+            "        node.status({fill: 'yellow', shape: 'ring', text: 'no valid features'}); node.send(null); return;",
+            '    }',
+            "    msg.payload = events.join('\\n');",
+            "    node.status({fill: 'green', shape: 'dot', text: events.length + ' events sent'});",
+            '    node.send(msg);',
+            "})().catch(e => { node.error('Attachment query failed: ' + e.message); node.send(null); });",
+            'return;',
+        ]
+    else:
+        lines = common + [
+            'const events = [];',
+            'for (const feature of data.features) {',
+            '    const a = feature.attributes;',
+            '    const geom = feature.geometry;',
+            '    if (!geom || geom.x == null || geom.y == null) continue;',
+            '    const lat = geom.y, lon = geom.x;',
+            '    const objectid = a.objectid || a.OBJECTID || a.ObjectId;',
+            "    const callsign = a[F_CALLSIGN] || 'UNKNOWN';",
+            "    const waypointType = a[F_WAYPOINT] || '';",
+            '    const creationDate = a.CreationDate || a.creationdate;',
+            '    const creationDateStr = creationDate',
+            "        ? new Date(creationDate).toISOString().replace('T', ' ').replace('Z', '').slice(0, 23)",
+            "        : '';",
+            '    const iconPath = getIcon(waypointType);',
+            '    const remarks = buildRemarks(a, lat, lon, callsign, creationDateStr, objectid);',
+            "    const fileshareXml = '';",
+            f'    const event = `{cot_tpl}`;',
+            '    events.push(event);',
+            '}',
+            'if (events.length === 0) {',
+            "    node.status({fill: 'yellow', shape: 'ring', text: 'no valid features'}); return null;",
+            '}',
+            "msg.payload = events.join('\\n');",
+            "node.status({fill: 'green', shape: 'dot', text: events.length + ' events sent'});",
+            'return msg;',
+        ]
+
     return '\n'.join(lines)
 
 
@@ -269,6 +335,10 @@ def _generate_flow_nodes(cfg):
         cfg.get('field_mapping', {}),
         cfg.get('icon_mapping', {}),
         cfg.get('cot_type', DEFAULT_COT_TYPE),
+        cfg.get('remarks_fields', []),
+        cfg.get('include_attachments', False),
+        cfg.get('survey_url', ''),
+        cfg.get('token', ''),
     )
 
     return [
@@ -399,6 +469,11 @@ tr:last-child td{border-bottom:none}
 .toast.warn{background:var(--yellow);color:#000}
 .hint{font-size:11px;color:var(--text-dim);margin-top:4px}
 hr{border:none;border-top:1px solid var(--border);margin:16px 0}
+.remarks-row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+.remarks-row input{flex:0 0 180px}
+.remarks-row select{flex:1}
+.remarks-row .del-btn{flex-shrink:0;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.25);color:var(--red);border-radius:6px;padding:6px 10px;cursor:pointer;font-size:13px;line-height:1}
+.remarks-row .del-btn:hover{background:rgba(239,68,68,.22)}
 </style>
 </head>
 <body>
@@ -465,53 +540,59 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
     </div>
   </div>
 
-  <!-- Field Mapping -->
+  <!-- Required CoT Fields -->
   <div class="card">
-    <div class="card-title">Field Mapping</div>
-    <p class="hint" style="margin-bottom:14px">Click &ldquo;Discover Fields&rdquo; above to populate these dropdowns from your actual survey, or type field names manually.</p>
+    <div class="card-title">Required CoT Fields</div>
+    <p class="hint" style="margin-bottom:14px">Discover Fields above to populate dropdowns. Latitude &amp; longitude come from the feature geometry automatically.</p>
     <div class="grid-2">
       <div class="form-group">
-        <label class="form-label">Callsign / Unit ID</label>
+        <label class="form-label">Callsign / Unit ID <span style="color:var(--red)">*</span></label>
         <select id="field-callsign" class="form-input">
           <option value="{{ cfg.get('field_mapping',{}).get('callsign','team_callsign') }}">{{ cfg.get('field_mapping',{}).get('callsign','team_callsign') }}</option>
         </select>
+        <div class="hint">Used in the CoT uid, UID detail, and contact callsign elements</div>
       </div>
       <div class="form-group">
-        <label class="form-label">Mission Number</label>
-        <select id="field-mission" class="form-input">
-          <option value="{{ cfg.get('field_mapping',{}).get('mission_number','mission_number') }}">{{ cfg.get('field_mapping',{}).get('mission_number','mission_number') }}</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Sortie Number</label>
-        <select id="field-sortie" class="form-input">
-          <option value="{{ cfg.get('field_mapping',{}).get('sortie_number','sortie_number') }}">{{ cfg.get('field_mapping',{}).get('sortie_number','sortie_number') }}</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Team Leader Name</label>
-        <select id="field-leader-name" class="form-input">
-          <option value="{{ cfg.get('field_mapping',{}).get('leader_name','team_leader_name') }}">{{ cfg.get('field_mapping',{}).get('leader_name','team_leader_name') }}</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Team Leader CAPID</label>
-        <select id="field-leader-capid" class="form-input">
-          <option value="{{ cfg.get('field_mapping',{}).get('leader_capid','team_leader_capid') }}">{{ cfg.get('field_mapping',{}).get('leader_capid','team_leader_capid') }}</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Waypoint / Incident Type <span style="color:var(--text-dim);font-weight:400">(drives CoT icon)</span></label>
+        <label class="form-label">Waypoint / Incident Type <span style="color:var(--text-dim);font-weight:400">(drives icon)</span></label>
         <select id="field-waypoint" class="form-input" onchange="onWaypointFieldChange()">
           <option value="{{ cfg.get('field_mapping',{}).get('waypoint_type','select_a_waypoint_of_what_you_a') }}">{{ cfg.get('field_mapping',{}).get('waypoint_type','select_a_waypoint_of_what_you_a') }}</option>
         </select>
       </div>
     </div>
-    <div class="form-group" style="max-width:280px">
-      <label class="form-label">CoT Type <span style="color:var(--text-dim);font-weight:400">(applied to all features)</span></label>
-      <input id="cot-type" class="form-input" type="text"
-             placeholder="a-h-G"
+    <div class="form-group" style="max-width:220px">
+      <label class="form-label">CoT Type</label>
+      <input id="cot-type" class="form-input" type="text" placeholder="a-h-G"
              value="{{ cfg.get('cot_type', 'a-h-G') }}">
+      <div class="hint">e.g. a-f-G (friendly ground), a-h-G (hostile), a-n-G (neutral)</div>
+    </div>
+  </div>
+
+  <!-- Remarks Builder -->
+  <div class="card">
+    <div class="card-title">Remarks Builder</div>
+    <p class="hint" style="margin-bottom:14px">
+      These fields are concatenated into the CoT <code style="font-family:monospace;font-size:11px">&lt;remarks&gt;</code> element in order.
+      Lat/Lon, ObjectID, and submission time are always appended automatically.
+    </p>
+    <div id="remarks-list"></div>
+    <div class="controls" style="margin-top:8px">
+      <button class="btn btn-ghost btn-sm" onclick="addRemarksRow()">+ Add Field</button>
+    </div>
+  </div>
+
+  <!-- Attachments -->
+  <div class="card">
+    <div class="card-title">ArcGIS Attachments</div>
+    <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px">
+      <input type="checkbox" id="include-attachments" style="width:16px;height:16px;accent-color:var(--accent)"
+             {{ 'checked' if cfg.get('include_attachments') else '' }}>
+      <span>Query ArcGIS for photo/file attachments and include as CoT <code style="font-family:monospace;font-size:11px">&lt;fileshare&gt;</code> elements</span>
+    </label>
+    <div class="hint" style="margin-top:10px;line-height:1.6">
+      When enabled, the flow makes an additional HTTP request per feature to
+      <code style="font-family:monospace;font-size:11px">/FeatureServer/0/{objectId}/attachments</code>.
+      TAK clients must be able to reach the ArcGIS server directly to download the files.
+      Leave disabled for faster polling if your survey has no attachments.
     </div>
   </div>
 
@@ -603,6 +684,53 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
 <script>
 const ICON_OPTIONS = {{ icon_options_json }};
 const SAVED_ICON_MAP = {{ saved_icon_map_json }};
+const SAVED_REMARKS = {{ saved_remarks_json }};
+
+// ── Remarks Builder ───────────────────────────────────────────────────────────
+function remarksFieldOptions(selectedField) {
+  const fields = window._discoveredFields || [];
+  let opts = '<option value="">-- select field --</option>';
+  fields.forEach(f => {
+    const label = (f.alias && f.alias !== f.name) ? f.alias + ' (' + f.name + ')' : f.name;
+    const sel = f.name === selectedField ? ' selected' : '';
+    opts += `<option value="${f.name}"${sel}>${label}</option>`;
+  });
+  // If selectedField isn't in the discovered list, prepend it so it stays visible
+  if (selectedField && !fields.some(f => f.name === selectedField)) {
+    opts = `<option value="${selectedField}" selected>${selectedField}</option>` + opts;
+  }
+  return opts;
+}
+
+function addRemarksRow(field, label) {
+  const list = document.getElementById('remarks-list');
+  const row = document.createElement('div');
+  row.className = 'remarks-row';
+  row.innerHTML = `
+    <input type="text" class="form-input remarks-label" placeholder="Label" value="${label || ''}">
+    <select class="form-input remarks-field">${remarksFieldOptions(field || '')}</select>
+    <button class="del-btn" onclick="this.closest('.remarks-row').remove()">&#10005;</button>`;
+  list.appendChild(row);
+}
+
+function collectRemarksFields() {
+  return Array.from(document.querySelectorAll('.remarks-row')).map(row => ({
+    label: row.querySelector('.remarks-label').value.trim(),
+    field: row.querySelector('.remarks-field').value,
+  })).filter(r => r.field);
+}
+
+function initRemarks() {
+  const saved = SAVED_REMARKS.length ? SAVED_REMARKS : [
+    {label: 'Mission Number',    field: 'mission_number'},
+    {label: 'Sortie Number',     field: 'sortie_number'},
+    {label: 'Team Leader',       field: 'team_leader_name'},
+    {label: 'Team Leader CAPID', field: 'team_leader_capid'},
+    {label: 'Callsign',          field: 'team_callsign'},
+  ];
+  saved.forEach(r => addRemarksRow(r.field, r.label));
+}
+document.addEventListener('DOMContentLoaded', initRemarks);
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
 function showToast(msg, type) {
@@ -639,16 +767,9 @@ async function discoverFields() {
 }
 
 function populateSelects(fields) {
-  const selectIds = [
-    {id: 'field-callsign',    saved: null},
-    {id: 'field-mission',     saved: null},
-    {id: 'field-sortie',      saved: null},
-    {id: 'field-leader-name', saved: null},
-    {id: 'field-leader-capid',saved: null},
-    {id: 'field-waypoint',    saved: null},
-  ];
-  selectIds.forEach(item => {
-    const sel = document.getElementById(item.id);
+  window._discoveredFields = fields;
+  ['field-callsign', 'field-waypoint'].forEach(id => {
+    const sel = document.getElementById(id);
     if (!sel) return;
     const current = sel.value;
     sel.innerHTML = '<option value="">-- select field --</option>';
@@ -660,7 +781,11 @@ function populateSelects(fields) {
       sel.appendChild(opt);
     });
   });
-  window._discoveredFields = fields;
+  // Refresh all remarks field dropdowns, preserving current selections
+  document.querySelectorAll('.remarks-field').forEach(sel => {
+    const current = sel.value;
+    sel.innerHTML = remarksFieldOptions(current);
+  });
 }
 
 // ── Discover waypoint values ───────────────────────────────────────────────────
@@ -777,25 +902,23 @@ function collectIconMap() {
 // ── Save config ───────────────────────────────────────────────────────────────
 function buildCfg() {
   return {
-    survey_url:    document.getElementById('survey-url').value.trim(),
-    token:         document.getElementById('survey-token').value.trim(),
-    poll_interval: parseInt(document.getElementById('poll-interval').value) || 60,
-    tak_host:      document.getElementById('tak-host').value.trim(),
-    tak_port:      parseInt(document.getElementById('tak-port').value) || 8089,
-    tls_cert:      document.getElementById('tls-cert').value.trim(),
-    tls_key:       document.getElementById('tls-key').value.trim(),
-    tls_ca:        document.getElementById('tls-ca').value.trim(),
-    log_file:      document.getElementById('log-file').value.trim() || 'cot-logged.txt',
-    cot_type:      document.getElementById('cot-type').value.trim() || 'a-h-G',
+    survey_url:          document.getElementById('survey-url').value.trim(),
+    token:               document.getElementById('survey-token').value.trim(),
+    poll_interval:       parseInt(document.getElementById('poll-interval').value) || 60,
+    tak_host:            document.getElementById('tak-host').value.trim(),
+    tak_port:            parseInt(document.getElementById('tak-port').value) || 8089,
+    tls_cert:            document.getElementById('tls-cert').value.trim(),
+    tls_key:             document.getElementById('tls-key').value.trim(),
+    tls_ca:              document.getElementById('tls-ca').value.trim(),
+    log_file:            document.getElementById('log-file').value.trim() || 'cot-logged.txt',
+    cot_type:            document.getElementById('cot-type').value.trim() || 'a-h-G',
+    include_attachments: document.getElementById('include-attachments').checked,
     field_mapping: {
-      callsign:      document.getElementById('field-callsign').value,
-      mission_number:document.getElementById('field-mission').value,
-      sortie_number: document.getElementById('field-sortie').value,
-      leader_name:   document.getElementById('field-leader-name').value,
-      leader_capid:  document.getElementById('field-leader-capid').value,
-      waypoint_type: document.getElementById('field-waypoint').value,
+      callsign:     document.getElementById('field-callsign').value,
+      waypoint_type:document.getElementById('field-waypoint').value,
     },
-    icon_mapping: collectIconMap(),
+    remarks_fields: collectRemarksFields(),
+    icon_mapping:   collectIconMap(),
   };
 }
 
@@ -892,6 +1015,7 @@ def register_routes(app, login_required, load_settings, save_settings):
         icon_options = [{'name': k, 'path': v} for k, v in INCIDENT_ICONS.items()]
         icon_options_json = Markup(json.dumps(icon_options))
         saved_icon_map_json = Markup(json.dumps(cfg.get('icon_mapping', {})))
+        saved_remarks_json = Markup(json.dumps(cfg.get('remarks_fields', [])))
 
         deployed = cfg.get('deployed', False)
         last_deployed = cfg.get('last_deployed', '')
@@ -904,6 +1028,7 @@ def register_routes(app, login_required, load_settings, save_settings):
             last_deployed=last_deployed,
             icon_options_json=icon_options_json,
             saved_icon_map_json=saved_icon_map_json,
+            saved_remarks_json=saved_remarks_json,
         ))
         resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
         return resp
