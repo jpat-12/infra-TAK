@@ -615,10 +615,15 @@ function showToast(msg, type) {
 
 // ── Discover fields ────────────────────────────────────────────────────────────
 async function discoverFields() {
-  const url = document.getElementById('survey-url').value.trim();
+  let url = document.getElementById('survey-url').value.trim();
   const token = document.getElementById('survey-token').value.trim();
   const status = document.getElementById('discover-status');
   if (!url) { showToast('Enter a Survey123 URL first', 'error'); return; }
+  // Ensure URL ends with /<number>/query
+  if (!/\/\d+\/query$/i.test(url)) {
+    url = url.endsWith('/') ? url + '0/query' : url + '/0/query';
+    document.getElementById('survey-url').value = url;
+  }
   status.textContent = 'Discovering...';
   try {
     const res = await fetch('/api/esri/discover-fields?' + new URLSearchParams({url, token}));
@@ -924,16 +929,15 @@ def register_routes(app, login_required, load_settings, save_settings):
         if not raw_url:
             return jsonify({'ok': False, 'error': 'url parameter is required'})
 
-        # Build the layer metadata URL
-        # Strip /query suffix if present, then query the layer info endpoint
-        base = raw_url
-        for suffix in ('/query', '/0/query'):
-            if base.lower().endswith(suffix):
-                base = base[:-len(suffix)]
-                break
-        # If URL ends with /0 it's already the layer endpoint; otherwise try /0
-        if not base.rstrip('/').endswith('/0'):
-            base = base.rstrip('/') + '/0'
+        # Build the layer metadata URL from whatever the user pasted
+        import re as _re
+        base = raw_url.rstrip('/')
+        # Strip /<number>/query or /query suffix
+        base = _re.sub(r'/\d+/query$', '', base, flags=_re.IGNORECASE)
+        base = _re.sub(r'/query$', '', base, flags=_re.IGNORECASE)
+        # If we're still at the FeatureServer level (no trailing layer number), append /0
+        if not _re.search(r'/\d+$', base):
+            base = base + '/0'
 
         params = {'f': 'json'}
         if token:
@@ -973,13 +977,12 @@ def register_routes(app, login_required, load_settings, save_settings):
             return jsonify({'ok': False, 'error': 'url and field parameters are required'})
 
         # Build /query endpoint
-        base = raw_url
-        for suffix in ('/query',):
-            if base.lower().endswith(suffix):
-                base = base[:-len(suffix)]
-                break
-        if not base.rstrip('/').endswith('/0'):
-            base = base.rstrip('/') + '/0'
+        import re as _re
+        base = raw_url.rstrip('/')
+        base = _re.sub(r'/\d+/query$', '', base, flags=_re.IGNORECASE)
+        base = _re.sub(r'/query$', '', base, flags=_re.IGNORECASE)
+        if not _re.search(r'/\d+$', base):
+            base = base + '/0'
         query_url = base + '/query'
 
         params = {
