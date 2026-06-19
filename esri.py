@@ -57,6 +57,22 @@ CONFIG_DIR = os.environ.get('CONFIG_DIR') or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), '.config'
 )
 
+def _cert_dir():
+    return os.path.join(CONFIG_DIR, 'esri_certs')
+
+def _cert_paths():
+    d = _cert_dir()
+    return {
+        'cert': os.path.join(d, 'client.pem'),
+        'key':  os.path.join(d, 'client.key'),
+        'ca':   os.path.join(d, 'ca.pem'),
+    }
+
+def _run_openssl(*args):
+    import subprocess as _sp
+    r = _sp.run(['openssl'] + list(args), capture_output=True, text=True)
+    return r.returncode == 0, r.stderr.strip()
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Settings helpers
 # ─────────────────────────────────────────────────────────────────────────────
@@ -324,10 +340,12 @@ def _generate_flow_nodes(cfg):
     tls_id  = 'esri_tls'
     tak_host  = cfg.get('tak_host', '')
     tak_port  = str(int(cfg.get('tak_port', 8089)))
-    tls_cert  = cfg.get('tls_cert', '')
-    tls_key   = cfg.get('tls_key', '')
-    tls_ca    = cfg.get('tls_ca', '')
     log_file  = cfg.get('log_file', 'cot-logged.txt')
+    # Cert paths come from the upload directory, not free-text config
+    _cp = _cert_paths()
+    tls_cert = _cp['cert'] if os.path.exists(_cp['cert']) else ''
+    tls_key  = _cp['key']  if os.path.exists(_cp['key'])  else ''
+    tls_ca   = _cp['ca']   if os.path.exists(_cp['ca'])   else ''
     poll      = str(int(cfg.get('poll_interval', 60)))
 
     url_fn  = _build_url_fn(cfg.get('survey_url', ''), cfg.get('token', ''))
@@ -474,6 +492,15 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
 .remarks-row select{flex:1}
 .remarks-row .del-btn{flex-shrink:0;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.25);color:var(--red);border-radius:6px;padding:6px 10px;cursor:pointer;font-size:13px;line-height:1}
 .remarks-row .del-btn:hover{background:rgba(239,68,68,.22)}
+.upload-row{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.upload-label{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:7px;background:rgba(255,255,255,.05);border:1px solid var(--border);color:var(--text-secondary);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s}
+.upload-label:hover{border-color:var(--accent);color:var(--accent)}
+.upload-label input[type=file]{display:none}
+.cert-file-status{font-size:12px;color:var(--text-dim);font-family:monospace}
+.cert-file-status.ok{color:var(--green)}
+.cert-file-status.missing{color:var(--red)}
+.format-tab{padding:7px 16px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--text-secondary);transition:all .15s}
+.format-tab.active{background:var(--accent);color:#fff;border-color:var(--accent)}
 </style>
 </head>
 <body>
@@ -632,26 +659,68 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
       </div>
     </div>
     <hr>
-    <div class="card-title" style="margin-top:4px">TLS Certificates <span style="color:var(--text-dim);font-weight:400;font-size:11px">(paths on the Node-RED host)</span></div>
-    <div class="grid-3">
-      <div class="form-group">
-        <label class="form-label">Client Certificate (.pem / .crt)</label>
-        <input id="tls-cert" class="form-input" type="text"
-               placeholder="/etc/tak/certs/user.pem"
-               value="{{ cfg.get('tls_cert','') }}">
+    <div class="card-title" style="margin-top:4px">TLS Certificates</div>
+
+    <!-- Format toggle -->
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <button class="format-tab active" id="fmt-pem" onclick="setCertFormat('pem')">PEM files (cert + key)</button>
+      <button class="format-tab" id="fmt-p12" onclick="setCertFormat('p12')">PKCS12 / P12</button>
+    </div>
+
+    <!-- PEM section -->
+    <div id="cert-pem-section">
+      <div class="upload-row">
+        <label class="upload-label">&#128196; Client Certificate (.pem/.crt)
+          <input type="file" id="file-cert" accept=".pem,.crt,.cer" onchange="setFileLabel(this,'lbl-cert')">
+        </label>
+        <span class="cert-file-status {{ 'ok' if cert_status.get('has_cert') else 'missing' }}" id="lbl-cert">
+          {{ cert_status.get('cert_name','no file') }}
+        </span>
       </div>
-      <div class="form-group">
-        <label class="form-label">Private Key (.key / .pem)</label>
-        <input id="tls-key" class="form-input" type="text"
-               placeholder="/etc/tak/certs/user.key"
-               value="{{ cfg.get('tls_key','') }}">
+      <div class="upload-row">
+        <label class="upload-label">&#128196; Private Key (.key/.pem)
+          <input type="file" id="file-key" accept=".key,.pem" onchange="setFileLabel(this,'lbl-key')">
+        </label>
+        <span class="cert-file-status {{ 'ok' if cert_status.get('has_key') else 'missing' }}" id="lbl-key">
+          {{ cert_status.get('key_name','no file') }}
+        </span>
       </div>
-      <div class="form-group">
-        <label class="form-label">CA Certificate</label>
-        <input id="tls-ca" class="form-input" type="text"
-               placeholder="/etc/tak/certs/ca.pem"
-               value="{{ cfg.get('tls_ca','') }}">
+    </div>
+
+    <!-- P12 section -->
+    <div id="cert-p12-section" style="display:none">
+      <div class="upload-row">
+        <label class="upload-label">&#128196; P12 / PFX file
+          <input type="file" id="file-p12" accept=".p12,.pfx" onchange="setFileLabel(this,'lbl-p12')">
+        </label>
+        <span class="cert-file-status {{ 'ok' if cert_status.get('has_cert') else 'missing' }}" id="lbl-p12">
+          {{ cert_status.get('p12_name','no file') }}
+        </span>
       </div>
+    </div>
+
+    <!-- CA (shared between PEM and P12 modes) -->
+    <div class="upload-row">
+      <label class="upload-label">&#128196; CA Certificate <span style="color:var(--text-dim);font-weight:400">(optional — PEM or P12)</span>
+        <input type="file" id="file-ca" accept=".pem,.crt,.cer,.p12,.pfx" onchange="setFileLabel(this,'lbl-ca')">
+      </label>
+      <span class="cert-file-status {{ 'ok' if cert_status.get('has_ca') else '' }}" id="lbl-ca">
+        {{ cert_status.get('ca_name','no file') }}
+      </span>
+    </div>
+
+    <!-- Single shared password -->
+    <div class="form-group" style="max-width:320px;margin-top:8px">
+      <label class="form-label">Certificate Password</label>
+      <input id="cert-password" class="form-input" type="password" placeholder="leave blank if no password">
+      <div class="hint">One password for both the private key and any P12 files</div>
+    </div>
+
+    <div class="controls" style="margin-top:12px">
+      <button class="btn btn-ghost btn-sm" id="upload-btn" onclick="uploadCerts()">&#8679; Upload Certificates</button>
+      <span id="cert-upload-status" style="font-size:12px;color:var(--text-dim)">
+        {% if cert_status.get('uploaded_at') %}Uploaded {{ cert_status.uploaded_at }}{% endif %}
+      </span>
     </div>
   </div>
 
@@ -731,6 +800,65 @@ function initRemarks() {
   saved.forEach(r => addRemarksRow(r.field, r.label));
 }
 document.addEventListener('DOMContentLoaded', initRemarks);
+
+// ── Cert upload ───────────────────────────────────────────────────────────────
+let _certFormat = 'pem';
+
+function setCertFormat(fmt) {
+  _certFormat = fmt;
+  document.getElementById('cert-pem-section').style.display = fmt === 'pem' ? '' : 'none';
+  document.getElementById('cert-p12-section').style.display = fmt === 'p12' ? '' : 'none';
+  document.getElementById('fmt-pem').classList.toggle('active', fmt === 'pem');
+  document.getElementById('fmt-p12').classList.toggle('active', fmt === 'p12');
+}
+
+function setFileLabel(input, labelId) {
+  const span = document.getElementById(labelId);
+  if (input.files && input.files[0]) {
+    span.textContent = input.files[0].name;
+    span.className = 'cert-file-status ok';
+  }
+}
+
+async function uploadCerts() {
+  const btn = document.getElementById('upload-btn');
+  const status = document.getElementById('cert-upload-status');
+  const password = document.getElementById('cert-password').value;
+  const fd = new FormData();
+  fd.append('format', _certFormat);
+  fd.append('password', password);
+  if (_certFormat === 'pem') {
+    const cert = document.getElementById('file-cert').files[0];
+    const key  = document.getElementById('file-key').files[0];
+    if (!cert || !key) { showToast('Select both a certificate and a key file', 'warn'); return; }
+    fd.append('cert', cert);
+    fd.append('key', key);
+  } else {
+    const p12 = document.getElementById('file-p12').files[0];
+    if (!p12) { showToast('Select a P12 file', 'warn'); return; }
+    fd.append('p12', p12);
+  }
+  const ca = document.getElementById('file-ca').files[0];
+  if (ca) fd.append('ca', ca);
+  btn.disabled = true;
+  status.textContent = 'Uploading…';
+  try {
+    const res = await fetch('/api/esri/upload-certs', {method: 'POST', body: fd});
+    const data = await res.json();
+    if (data.ok) {
+      showToast(data.message || 'Certificates uploaded', 'success');
+      status.textContent = 'Uploaded ' + (data.uploaded_at || '');
+    } else {
+      showToast(data.error || 'Upload failed', 'error');
+      status.textContent = 'Error: ' + (data.error || 'unknown');
+    }
+  } catch(e) {
+    showToast(e.message, 'error');
+    status.textContent = 'Error: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
 function showToast(msg, type) {
@@ -907,9 +1035,6 @@ function buildCfg() {
     poll_interval:       parseInt(document.getElementById('poll-interval').value) || 60,
     tak_host:            document.getElementById('tak-host').value.trim(),
     tak_port:            parseInt(document.getElementById('tak-port').value) || 8089,
-    tls_cert:            document.getElementById('tls-cert').value.trim(),
-    tls_key:             document.getElementById('tls-key').value.trim(),
-    tls_ca:              document.getElementById('tls-ca').value.trim(),
     log_file:            document.getElementById('log-file').value.trim() || 'cot-logged.txt',
     cot_type:            document.getElementById('cot-type').value.trim() || 'a-h-G',
     include_attachments: document.getElementById('include-attachments').checked,
@@ -1017,6 +1142,20 @@ def register_routes(app, login_required, load_settings, save_settings):
         saved_icon_map_json = Markup(json.dumps(cfg.get('icon_mapping', {})))
         saved_remarks_json = Markup(json.dumps(cfg.get('remarks_fields', [])))
 
+        # Cert status for the upload UI
+        cp = _cert_paths()
+        cs = cfg.get('cert_status', {})
+        cert_status = {
+            'has_cert':    os.path.exists(cp['cert']),
+            'has_key':     os.path.exists(cp['key']),
+            'has_ca':      os.path.exists(cp['ca']),
+            'cert_name':   cs.get('cert_name', 'no file'),
+            'key_name':    cs.get('key_name', 'no file'),
+            'p12_name':    cs.get('p12_name', 'no file'),
+            'ca_name':     cs.get('ca_name', 'no file'),
+            'uploaded_at': cs.get('uploaded_at', ''),
+        }
+
         deployed = cfg.get('deployed', False)
         last_deployed = cfg.get('last_deployed', '')
 
@@ -1029,6 +1168,7 @@ def register_routes(app, login_required, load_settings, save_settings):
             icon_options_json=icon_options_json,
             saved_icon_map_json=saved_icon_map_json,
             saved_remarks_json=saved_remarks_json,
+            cert_status=cert_status,
         ))
         resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
         return resp
@@ -1043,6 +1183,123 @@ def register_routes(app, login_required, load_settings, save_settings):
         data = request.get_json(silent=True) or {}
         _save_cfg(data, load_settings, save_settings)
         return jsonify({'ok': True})
+
+    # ── Certificate upload ────────────────────────────────────────────────────
+
+    @app.route('/api/esri/upload-certs', methods=['POST'])
+    @login_required
+    def esri_upload_certs():
+        import tempfile, subprocess as _sp, datetime as _dt
+        cert_format = request.form.get('format', 'pem')
+        password    = request.form.get('password', '')
+        passarg     = f'pass:{password}' if password else 'pass:'
+
+        d = _cert_dir()
+        os.makedirs(d, exist_ok=True)
+
+        cert_path = _cert_paths()['cert']
+        key_path  = _cert_paths()['key']
+        ca_path   = _cert_paths()['ca']
+
+        status = {}
+
+        def run(*args):
+            r = _sp.run(list(args), capture_output=True, text=True)
+            return r.returncode == 0, r.stderr.strip()
+
+        if cert_format == 'p12':
+            p12f = request.files.get('p12')
+            if not p12f:
+                return jsonify({'ok': False, 'error': 'No P12 file selected'})
+
+            # Save P12 to a temp file so we can run openssl against it
+            with tempfile.NamedTemporaryFile(suffix='.p12', delete=False, dir=d) as tmp:
+                p12f.save(tmp.name)
+                tmp_p12 = tmp.name
+
+            try:
+                ok, err = run('openssl', 'pkcs12', '-in', tmp_p12,
+                              '-clcerts', '-nokeys', '-out', cert_path, '-passin', passarg)
+                if not ok:
+                    return jsonify({'ok': False, 'error': 'Could not extract certificate — wrong password? ' + err})
+
+                ok, err = run('openssl', 'pkcs12', '-in', tmp_p12,
+                              '-nocerts', '-nodes', '-out', key_path, '-passin', passarg)
+                if not ok:
+                    return jsonify({'ok': False, 'error': 'Could not extract private key — ' + err})
+
+                # Try to extract CA certs from the P12 (may be empty if not included)
+                run('openssl', 'pkcs12', '-in', tmp_p12,
+                    '-cacerts', '-nokeys', '-out', ca_path, '-passin', passarg)
+            finally:
+                try: os.unlink(tmp_p12)
+                except Exception: pass
+
+            status['p12_name'] = p12f.filename
+
+        else:  # pem
+            certf = request.files.get('cert')
+            keyf  = request.files.get('key')
+            if not certf or not keyf:
+                return jsonify({'ok': False, 'error': 'Select both a certificate and a key file'})
+
+            certf.save(cert_path)
+            status['cert_name'] = certf.filename
+            status['key_name']  = keyf.filename
+
+            # Save key to temp, decrypt if password given, then save to key_path
+            if password:
+                with tempfile.NamedTemporaryFile(suffix='.key', delete=False, dir=d) as tmp:
+                    keyf.save(tmp.name)
+                    tmp_key = tmp.name
+                try:
+                    ok, err = run('openssl', 'pkey', '-in', tmp_key,
+                                  '-out', key_path, '-passin', passarg)
+                    if not ok:
+                        # Fall back to saving as-is
+                        import shutil
+                        shutil.copy(tmp_key, key_path)
+                finally:
+                    try: os.unlink(tmp_key)
+                    except Exception: pass
+            else:
+                keyf.save(key_path)
+
+        # CA cert — may be PEM or P12 (handle both)
+        caf = request.files.get('ca')
+        if caf:
+            fname = caf.filename.lower()
+            if fname.endswith('.p12') or fname.endswith('.pfx'):
+                with tempfile.NamedTemporaryFile(suffix='.p12', delete=False, dir=d) as tmp:
+                    caf.save(tmp.name)
+                    tmp_ca = tmp.name
+                try:
+                    ok, err = run('openssl', 'pkcs12', '-in', tmp_ca,
+                                  '-nokeys', '-out', ca_path, '-passin', passarg)
+                    if not ok:
+                        run('openssl', 'pkcs12', '-in', tmp_ca,
+                            '-nokeys', '-out', ca_path, '-passin', 'pass:')
+                finally:
+                    try: os.unlink(tmp_ca)
+                    except Exception: pass
+            else:
+                caf.save(ca_path)
+            status['ca_name'] = caf.filename
+
+        # Restrict permissions so private key isn't world-readable
+        for p in (cert_path, key_path, ca_path):
+            if os.path.exists(p):
+                try: os.chmod(p, 0o600)
+                except Exception: pass
+
+        uploaded_at = _dt.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')
+        status['uploaded_at'] = uploaded_at
+
+        cfg = _load_cfg(load_settings)
+        cfg['cert_status'] = status
+        _save_cfg(cfg, load_settings, save_settings)
+
+        return jsonify({'ok': True, 'message': 'Certificates saved', 'uploaded_at': uploaded_at})
 
     # ── Discover fields ───────────────────────────────────────────────────────
 
