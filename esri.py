@@ -247,11 +247,15 @@ def _build_cot_fn(field_map, icon_map, cot_type, remarks_fields, include_attachm
 
     if include_attachments:
         lines = common + [
-            "const https = require('https');",
-            "const http  = require('http');",
+            # Node-RED 3.1+ removed require() from the function sandbox; modules must be
+            # declared in the node's libs array and arrive as injected globals.
+            # Older versions (2.x / 3.0) still have require() available.
+            # The typeof guard avoids a ReferenceError either way.
+            "const _https = typeof require !== 'undefined' ? require('https') : https;",
+            "const _http  = typeof require !== 'undefined' ? require('http')  : http;",
             'function fetchJson(url) {',
             '    return new Promise(resolve => {',
-            "        const lib = url.startsWith('https') ? https : http;",
+            "        const lib = url.startsWith('https') ? _https : _http;",
             "        try { lib.get(url, res => { let d = ''; res.on('data', c => d += c);",
             "            res.on('end', () => { try { resolve(JSON.parse(d)); } catch { resolve({}); } });",
             "        }).on('error', () => resolve({})); } catch { resolve({}); }",
@@ -390,7 +394,8 @@ def _generate_flow_nodes(cfg):
          'x': 580, 'y': 160, 'wires': [['esri_fn_cot']]},
         {'id': 'esri_fn_cot', 'type': 'function', 'z': tab1,
          'name': 'Convert to CoT XML', 'func': cot_fn,
-         'outputs': 1, 'timeout': 0, 'noerr': 0, 'initialize': '', 'finalize': '', 'libs': [],
+         'outputs': 1, 'timeout': 0, 'noerr': 0, 'initialize': '', 'finalize': '',
+         'libs': [{'var': 'https', 'module': 'https'}, {'var': 'http', 'module': 'http'}] if cfg.get('include_attachments', False) else [],
          'x': 800, 'y': 160, 'wires': [['esri_tcp_out', 'esri_dbg_cot']]},
         {'id': 'esri_tcp_out', 'type': 'tcp out', 'z': tab1,
          'name': 'Send to TAKServer', 'host': tak_host, 'port': tak_port,
