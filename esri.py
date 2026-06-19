@@ -170,10 +170,13 @@ def _build_url_fn(survey_url, token):
     ])
 
 
-def _build_cot_fn(field_map, icon_map, cot_type, remarks_fields, include_attachments, survey_url, token):
+def _build_cot_fn(field_map, icon_map, cot_type, remarks_fields, include_attachments, survey_url, token, icon_base_url=''):
     import re as _re
     fm = field_map or {}
-    icons = icon_map if icon_map else INCIDENT_ICONS
+    # Separate __other__ from the icon map; it becomes the defaultIcon
+    raw_icons = icon_map if icon_map else INCIDENT_ICONS
+    icons = {k: v for k, v in raw_icons.items() if k != '__other__'}
+    default_icon_path = raw_icons.get('__other__', DEFAULT_ICON) if icon_map else DEFAULT_ICON
 
     # Derive the FeatureServer/0 base URL for attachment queries
     att_base = _re.sub(r'/\d+/query$', '', (survey_url or '').rstrip('/'), flags=_re.IGNORECASE)
@@ -194,8 +197,15 @@ def _build_cot_fn(field_map, icon_map, cot_type, remarks_fields, include_attachm
         f"const SURVEY_TOKEN = '{_js(token or '')}';",
         '',
         f'const iconPaths = {json.dumps(icons, indent=2)};',
-        f"const defaultIcon = '{_js(DEFAULT_ICON)}';",
-        'function getIcon(v) { return iconPaths[v] || defaultIcon; }',
+        f"const defaultIcon = '{_js(default_icon_path)}';",
+        f"const ICON_BASE_URL = '{_js(icon_base_url)}';",
+        'function getIcon(v) {',
+        '    const p = iconPaths[v] || defaultIcon;',
+        "    if (p && p.startsWith('CUSTOM:')) {",
+        "        return ICON_BASE_URL + '/api/esri/icon/' + encodeURIComponent(p.slice(7));",
+        '    }',
+        '    return p;',
+        '}',
         '',
         'function buildRemarks(a, lat, lon, callsign, creationDateStr, objectid) {',
         '    const parts = REMARKS_FIELDS.map(r => {',
@@ -357,6 +367,7 @@ def _generate_flow_nodes(cfg):
         cfg.get('include_attachments', False),
         cfg.get('survey_url', ''),
         cfg.get('token', ''),
+        cfg.get('_icon_base_url', ''),
     )
 
     return [
@@ -626,18 +637,33 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
   <!-- Icon Mapping -->
   <div class="card">
     <div class="card-title">Icon Mapping</div>
-    <p class="hint" style="margin-bottom:14px">Maps each waypoint/incident type value from your survey to a TAK icon. Select the waypoint field above then click Discover Values.</p>
+    <p class="hint" style="margin-bottom:14px">One row per unique survey value. The <strong>Other</strong> row is the catch-all for any value not listed.</p>
+
+    <!-- Custom icon upload -->
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+      <label class="upload-label">&#128247; Upload Custom Icon (PNG/JPG)
+        <input type="file" id="file-custom-icon" accept=".png,.jpg,.jpeg,.gif,.svg"
+               onchange="uploadCustomIcon(this)">
+      </label>
+      <span id="icon-upload-status" style="font-size:12px;color:var(--text-dim)"></span>
+    </div>
+    {% if custom_icons %}
+    <div class="hint" style="margin-bottom:12px">
+      Uploaded icons: {% for ic in custom_icons %}<code style="font-family:monospace;font-size:11px;margin-right:6px">{{ ic }}</code>{% endfor %}
+    </div>
+    {% endif %}
+
     <div class="controls" style="margin-bottom:16px">
       <button class="btn btn-ghost btn-sm" onclick="discoverValues()">&#127981; Discover Waypoint Values</button>
       <span id="values-status" style="font-size:12px;color:var(--text-dim)"></span>
     </div>
-    <div id="icon-table-wrap" style="display:none">
+    <div id="icon-table-wrap">
       <table>
         <thead><tr><th>Survey Value</th><th>TAK Icon</th><th>Preview</th></tr></thead>
         <tbody id="icon-table-body"></tbody>
       </table>
     </div>
-    <div id="icon-table-empty" style="color:var(--text-dim);font-size:13px">
+    <div id="icon-table-empty" style="color:var(--text-dim);font-size:13px;display:none">
       No values discovered yet &mdash; click &ldquo;Discover Waypoint Values&rdquo; or deploy with the default icon mapping.
     </div>
   </div>
@@ -916,6 +942,39 @@ function populateSelects(fields) {
   });
 }
 
+// ── Custom icon upload ─────────────────────────────────────────────────────────
+async function uploadCustomIcon(input) {
+  if (!input.files || !input.files[0]) return;
+  const status = document.getElementById('icon-upload-status');
+  const fd = new FormData();
+  fd.append('icon', input.files[0]);
+  status.textContent = 'Uploading...';
+  try {
+    const res = await fetch('/api/esri/upload-icon', {method: 'POST', body: fd});
+    const data = await res.json();
+    if (data.ok) {
+      const newOpt = {name: 'Custom: ' + data.filename, path: 'CUSTOM:' + data.filename, custom: true};
+      ICON_OPTIONS.push(newOpt);
+      // Refresh all existing dropdowns so the new icon appears
+      document.querySelectorAll('.icon-sel').forEach(sel => {
+        const opt = document.createElement('option');
+        opt.value = newOpt.path;
+        opt.textContent = newOpt.name;
+        sel.insertBefore(opt, sel.lastElementChild); // before Custom path...
+      });
+      status.textContent = data.filename + ' uploaded';
+      showToast('Icon uploaded: ' + data.filename, 'success');
+    } else {
+      status.textContent = 'Error: ' + (data.error || 'upload failed');
+      showToast(data.error || 'Upload failed', 'error');
+    }
+  } catch(e) {
+    status.textContent = 'Error: ' + e.message;
+    showToast(e.message, 'error');
+  }
+  input.value = '';
+}
+
 // ── Discover waypoint values ───────────────────────────────────────────────────
 function onWaypointFieldChange() {
   document.getElementById('values-status').textContent = 'Field changed — click Discover Waypoint Values to refresh';
@@ -950,44 +1009,78 @@ function guessIcon(value) {
   return '';
 }
 
+function makeIconRow(val, isOtherRow) {
+  const savedPath = SAVED_ICON_MAP[isOtherRow ? '__other__' : val] || (!isOtherRow ? guessIcon(val) : '') || '';
+  const isCustomPath = Boolean(savedPath && !ICON_OPTIONS.some(o => o.path === savedPath) && !savedPath.startsWith('CUSTOM:'));
+  const opts = ICON_OPTIONS.map(o => {
+    const sel = o.path === savedPath ? ' selected' : '';
+    return `<option value="${o.path}"${sel}>${o.name}</option>`;
+  }).join('');
+  const customSel = isCustomPath ? ' selected' : '';
+  const customVal = isCustomPath ? savedPath : '';
+  const label = isOtherRow
+    ? '<em style="color:var(--text-dim)">Other (catch-all for unmatched values)</em>'
+    : `<span style="font-family:monospace;font-size:12px">${val}</span>`;
+  const deleteBtn = isOtherRow ? '' : `<button class="del-btn" style="flex-shrink:0" onclick="this.closest('tr').remove()">&#10005;</button>`;
+  const tr = document.createElement('tr');
+  tr.setAttribute('data-value', isOtherRow ? '__other__' : val);
+  if (isOtherRow) tr.setAttribute('data-other', '1');
+  tr.innerHTML = `
+    <td>${label}</td>
+    <td style="display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap">
+      <select class="form-input icon-sel" style="flex:1;font-size:12px;padding:6px 10px;min-width:160px" onchange="iconSelChange(this)">
+        <option value="">-- default icon --</option>
+        ${opts}
+        <option value="__custom__"${customSel}>Custom path…</option>
+      </select>
+      ${deleteBtn}
+      <input type="text" class="form-input icon-custom"
+             style="display:none;width:100%;margin-top:6px;font-size:12px"
+             placeholder="hash/Incident Icons/name.png or CUSTOM:filename.png"
+             value="${customVal}">
+    </td>
+    <td><img class="icon-preview" src="" style="height:28px;display:none"
+             onerror="this.style.display='none'"></td>`;
+  return tr;
+}
+
 function renderIconTable(values) {
   const tbody = document.getElementById('icon-table-body');
   const wrap  = document.getElementById('icon-table-wrap');
   const empty = document.getElementById('icon-table-empty');
+  // Deduplicate
+  const unique = [...new Set(values.map(v => String(v).trim()).filter(Boolean))].sort();
   tbody.innerHTML = '';
-  values.forEach(val => {
-    const savedPath = SAVED_ICON_MAP[val] || guessIcon(val) || '';
-    const isCustom = Boolean(savedPath && !ICON_OPTIONS.some(o => o.path === savedPath));
-    const opts = ICON_OPTIONS.map(o => {
-      const sel = o.path === savedPath ? ' selected' : '';
-      return `<option value="${o.path}"${sel}>${o.name}</option>`;
-    }).join('');
-    const customSel = isCustom ? ' selected' : '';
-    const customVal = isCustom ? savedPath : '';
-    const tr = document.createElement('tr');
-    tr.setAttribute('data-value', val);
-    tr.innerHTML = `
-      <td style="font-family:monospace;font-size:12px">${val}</td>
-      <td>
-        <select class="form-input icon-sel" style="font-size:12px;padding:6px 10px" onchange="iconSelChange(this)">
-          <option value="">-- default icon --</option>
-          ${opts}
-          <option value="__custom__"${customSel}>Custom path…</option>
-        </select>
-        <input type="text" class="form-input icon-custom"
-               style="display:none;margin-top:6px;font-size:12px"
-               placeholder="hash/Incident Icons/name.png"
-               value="${customVal}">
-      </td>
-      <td><img class="icon-preview" src="" style="height:28px;display:none"
-               onerror="this.style.display='none'"></td>`;
+  unique.forEach(val => {
+    const tr = makeIconRow(val, false);
     tbody.appendChild(tr);
     updateIconPreview(tr.querySelector('.icon-sel'));
-    if (isCustom) tr.querySelector('.icon-custom').style.display = 'block';
+    if (tr.querySelector('.icon-custom').value) tr.querySelector('.icon-custom').style.display = 'block';
   });
-  wrap.style.display = 'block';
+  // Always append the Other row
+  ensureOtherRow();
+  wrap.style.display = '';
   empty.style.display = 'none';
 }
+
+function ensureOtherRow() {
+  const tbody = document.getElementById('icon-table-body');
+  if (tbody.querySelector('[data-other]')) return;
+  const tr = makeIconRow('__other__', true);
+  tbody.appendChild(tr);
+  updateIconPreview(tr.querySelector('.icon-sel'));
+  if (tr.querySelector('.icon-custom').value) tr.querySelector('.icon-custom').style.display = 'block';
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  // Restore icon table from saved config if any mappings exist
+  const saved = Object.keys(SAVED_ICON_MAP).filter(k => k !== '__other__');
+  if (saved.length) {
+    renderIconTable(saved);
+  } else {
+    ensureOtherRow();
+  }
+});
 
 function iconSelChange(sel) {
   const tr = sel.closest('tr');
@@ -1006,12 +1099,13 @@ function updateIconPreview(sel) {
   const path = sel.value === '__custom__'
     ? tr.querySelector('.icon-custom').value.trim()
     : sel.value;
-  if (path && path !== '__custom__') {
-    img.src = 'https://static.arcgis.com/images/Symbols/Mil2525d/' + path;
-    img.style.display = 'inline';
+  if (!path || path === '__custom__') { img.style.display = 'none'; return; }
+  if (path.startsWith('CUSTOM:')) {
+    img.src = '/api/esri/icon/' + encodeURIComponent(path.slice(7));
   } else {
-    img.style.display = 'none';
+    img.src = 'https://static.arcgis.com/images/Symbols/Mil2525d/' + path;
   }
+  img.style.display = 'inline';
 }
 
 function collectIconMap() {
@@ -1023,6 +1117,7 @@ function collectIconMap() {
     let path = sel.value;
     if (path === '__custom__') path = (tr.querySelector('.icon-custom').value || '').trim();
     if (path && path !== '__custom__') result[val] = path;
+    // __other__ with empty selection → omit so defaultIcon is used
   });
   return result;
 }
@@ -1137,7 +1232,18 @@ def register_routes(app, login_required, load_settings, save_settings):
 
         nr = {'installed': nr_installed, 'running': nr_running}
 
-        icon_options = [{'name': k, 'path': v} for k, v in INCIDENT_ICONS.items()]
+        _icon_dir = os.path.join(CONFIG_DIR, 'esri_icons')
+        _exts = {'.png', '.jpg', '.jpeg', '.gif', '.svg'}
+        custom_icons = []
+        if os.path.isdir(_icon_dir):
+            custom_icons = sorted(
+                f for f in os.listdir(_icon_dir)
+                if os.path.splitext(f)[1].lower() in _exts
+            )
+        icon_options = (
+            [{'name': k, 'path': v} for k, v in INCIDENT_ICONS.items()] +
+            [{'name': f'Custom: {f}', 'path': f'CUSTOM:{f}', 'custom': True} for f in custom_icons]
+        )
         icon_options_json = Markup(json.dumps(icon_options))
         saved_icon_map_json = Markup(json.dumps(cfg.get('icon_mapping', {})))
         saved_remarks_json = Markup(json.dumps(cfg.get('remarks_fields', [])))
@@ -1169,6 +1275,7 @@ def register_routes(app, login_required, load_settings, save_settings):
             saved_icon_map_json=saved_icon_map_json,
             saved_remarks_json=saved_remarks_json,
             cert_status=cert_status,
+            custom_icons=custom_icons,
         ))
         resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
         return resp
@@ -1301,6 +1408,32 @@ def register_routes(app, login_required, load_settings, save_settings):
 
         return jsonify({'ok': True, 'message': 'Certificates saved', 'uploaded_at': uploaded_at})
 
+    # ── Custom icon upload / serve ────────────────────────────────────────────
+
+    @app.route('/api/esri/upload-icon', methods=['POST'])
+    @login_required
+    def esri_upload_icon():
+        import datetime as _dt
+        f = request.files.get('icon')
+        if not f or not f.filename:
+            return jsonify({'ok': False, 'error': 'No file selected'})
+        ext = os.path.splitext(f.filename)[1].lower()
+        if ext not in {'.png', '.jpg', '.jpeg', '.gif', '.svg'}:
+            return jsonify({'ok': False, 'error': 'Only PNG, JPG, GIF, SVG allowed'})
+        icon_dir = os.path.join(CONFIG_DIR, 'esri_icons')
+        os.makedirs(icon_dir, exist_ok=True)
+        safe_name = os.path.basename(f.filename).replace(' ', '_')
+        dest = os.path.join(icon_dir, safe_name)
+        f.save(dest)
+        return jsonify({'ok': True, 'filename': safe_name})
+
+    @app.route('/api/esri/icon/<path:filename>')
+    @login_required
+    def esri_serve_icon(filename):
+        from flask import send_from_directory
+        icon_dir = os.path.join(CONFIG_DIR, 'esri_icons')
+        return send_from_directory(icon_dir, filename)
+
     # ── Discover fields ───────────────────────────────────────────────────────
 
     @app.route('/api/esri/discover-fields')
@@ -1388,13 +1521,17 @@ def register_routes(app, login_required, load_settings, save_settings):
         if 'error' in data:
             return jsonify({'ok': False, 'error': data['error'].get('message', str(data['error']))})
 
+        seen = set()
         values = []
         for feat in data.get('features', []):
             v = feat.get('attributes', {}).get(field)
-            if v is not None and str(v).strip():
-                values.append(str(v).strip())
+            if v is not None:
+                sv = str(v).strip()
+                if sv and sv not in seen:
+                    seen.add(sv)
+                    values.append(sv)
 
-        return jsonify({'ok': True, 'values': values})
+        return jsonify({'ok': True, 'values': sorted(values)})
 
     # ── Deploy ────────────────────────────────────────────────────────────────
 
@@ -1406,6 +1543,10 @@ def register_routes(app, login_required, load_settings, save_settings):
 
         if not _nr_running(host, port):
             return jsonify({'ok': False, 'error': f'Node-RED is not reachable at {host}:{port}. Start it from the Node-RED page first.'})
+
+        # Inject icon base URL so custom icons can be resolved in the flow
+        _fqdn = load_settings().get('fqdn', '')
+        cfg['_icon_base_url'] = ('https://' + _fqdn) if _fqdn else ''
 
         nodes = _generate_flow_nodes(cfg)
         ok, msg = _deploy_to_nodered(nodes, host, port)
