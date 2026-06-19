@@ -699,27 +699,33 @@ function renderIconTable(values) {
   tbody.innerHTML = '';
   values.forEach(val => {
     const savedPath = SAVED_ICON_MAP[val] || guessIcon(val) || '';
+    const isCustom = Boolean(savedPath && !ICON_OPTIONS.some(o => o.path === savedPath));
     const opts = ICON_OPTIONS.map(o => {
       const sel = o.path === savedPath ? ' selected' : '';
-      return '<option value="' + o.path + '"' + sel + '>' + o.name + '</option>';
+      return `<option value="${o.path}"${sel}>${o.name}</option>`;
     }).join('');
+    const customSel = isCustom ? ' selected' : '';
+    const customVal = isCustom ? savedPath : '';
     const tr = document.createElement('tr');
     tr.setAttribute('data-value', val);
-    tr.innerHTML =
-      '<td style="font-family:\'JetBrains Mono\',monospace;font-size:12px">' + val + '</td>' +
-      '<td><select class="form-input icon-sel" style="font-size:12px;padding:6px 10px" onchange="iconSelChange(this)">' +
-        '<option value="">-- default icon --</option>' + opts +
-        '<option value="__custom__"' + (!savedPath || ICON_OPTIONS.some(o => o.path===savedPath) ? '' : ' selected') + '>Custom path…</option>' +
-      '</select>' +
-      '<input type="text" class="form-input icon-custom" style="display:none;margin-top:6px;font-size:12px" ' +
-             'placeholder="hash/Incident Icons/name.png" value="' + (ICON_OPTIONS.some(o=>o.path===savedPath) ? '' : savedPath) + '">' +
-      '</td>' +
-      '<td><img class="icon-preview" src="" style="height:28px;display:none" onerror="this.style.display=\'none\'"></td>';
+    tr.innerHTML = `
+      <td style="font-family:monospace;font-size:12px">${val}</td>
+      <td>
+        <select class="form-input icon-sel" style="font-size:12px;padding:6px 10px" onchange="iconSelChange(this)">
+          <option value="">-- default icon --</option>
+          ${opts}
+          <option value="__custom__"${customSel}>Custom path…</option>
+        </select>
+        <input type="text" class="form-input icon-custom"
+               style="display:none;margin-top:6px;font-size:12px"
+               placeholder="hash/Incident Icons/name.png"
+               value="${customVal}">
+      </td>
+      <td><img class="icon-preview" src="" style="height:28px;display:none"
+               onerror="this.style.display='none'"></td>`;
     tbody.appendChild(tr);
     updateIconPreview(tr.querySelector('.icon-sel'));
-    if (!ICON_OPTIONS.some(o => o.path === savedPath) && savedPath) {
-      tr.querySelector('.icon-custom').style.display = 'block';
-    }
+    if (isCustom) tr.querySelector('.icon-custom').style.display = 'block';
   });
   wrap.style.display = 'block';
   empty.style.display = 'none';
