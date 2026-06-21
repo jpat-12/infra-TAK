@@ -1386,7 +1386,6 @@ function buildCfg() {
     poll_interval:       parseInt(document.getElementById('poll-interval').value) || 60,
     tak_host:            document.getElementById('tak-host').value.trim(),
     tak_port:            parseInt(document.getElementById('tak-port').value) || 8089,
-    log_file:            document.getElementById('log-file').value.trim() || 'cot-logged.txt',
     cot_type:            document.getElementById('cot-type').value.trim() || 'a-h-G',
     include_attachments: document.getElementById('include-attachments').checked,
     field_mapping: {
