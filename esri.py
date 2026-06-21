@@ -137,7 +137,10 @@ def _deploy_to_nodered(new_nodes, host='localhost', port=1880):
     rev = current.get('rev', '')
     existing = current.get('flows', current if isinstance(current, list) else [])
 
-    our_labels = {'Survey123 → TAKServer', 'TAKServer CoT Logger', 'CoT Receiver'}
+    our_labels = {
+        'Survey123 → TAKServer', 'TAKServer CoT Logger', 'CoT Receiver',  # legacy names
+        'Esri CoT Sender', 'Esri CoT Receiver',
+    }
     our_tab_ids = {
         n['id'] for n in existing
         if n.get('type') == 'tab' and n.get('label', '') in our_labels
@@ -251,10 +254,10 @@ def _build_cot_fn(field_map, icon_map, cot_type, remarks_fields, include_attachm
 
     cot_tpl = (
         '<?xml version="1.0" encoding="UTF-8"?>'
-        '<event version="2.0" uid="Survey123_${objectid}" type="${COT_TYPE}" '
+        '<event version="2.0" uid="ESRI-${objectid}" type="${COT_TYPE}" '
         'time="${timeStr}" start="${timeStr}" stale="${staleStr}" how="m-g">'
         '<point lat="${lat}" lon="${lon}" hae="0" ce="10.0" le="2.0"/>'
-        '<detail><UID>Survey123_${callsign} ${creationDateStr}</UID>'
+        '<detail><UID>ESRI-${callsign} ${creationDateStr}</UID>'
         '<usericon iconsetpath="${iconPath}"/>'
         '<remarks>${remarks}</remarks>'
         '<contact callsign="${callsign}"/>'
@@ -263,13 +266,17 @@ def _build_cot_fn(field_map, icon_map, cot_type, remarks_fields, include_attachm
 
     if include_attachments:
         lines = common + [
-            # Use the global fetch() built into Node.js 18+ (Node-RED 3.x requires Node 18+).
-            # This avoids require() entirely — no sandbox restrictions, no libs needed.
-            'async function fetchJson(url) {',
-            '    try {',
-            '        const res = await fetch(url);',
-            "        return res.ok ? await res.json() : {};",
-            '    } catch(_) { return {}; }',
+            '// https/http imported via function node libs — works on any Node.js version.',
+            'function fetchJson(url) {',
+            '    return new Promise(function(resolve) {',
+            '        var u; try { u = new URL(url); } catch(_) { resolve({}); return; }',
+            '        var mod = u.protocol !== "http:" ? https : http;',
+            '        mod.get(url, function(res) {',
+            '            var d = "";',
+            '            res.on("data", function(c) { d += c; });',
+            '            res.on("end", function() { try { resolve(JSON.parse(d)); } catch(_) { resolve({}); } });',
+            '        }).on("error", function() { resolve({}); });',
+            '    });',
             '}',
             '',
             '(async () => {',
@@ -346,14 +353,16 @@ _FILTER_FN = '\n'.join([
     'const data = msg.payload;',
     "if (!data || data.trim() === '') return null;",
     "const messages = data.split('<?xml version=\"1.0\" encoding=\"UTF-8\"?>');",
-    'function isSurvey123(m) {',
+    'function isEsriSender(m) {',
     '    const match = m.match(/uid="([^"]+)"/);',
-    "    return match && match[1].startsWith('Survey123_');",
+    '    if (!match) return false;',
+    '    const uid = match[1];',
+    "    return uid.startsWith('ESRI-') || uid.startsWith('Survey123_');",
     '}',
-    "const filtered = messages.filter(m => m.trim() !== '' && !isSurvey123(m));",
+    "const filtered = messages.filter(m => m.trim() !== '' && !isEsriSender(m));",
     "if (filtered.length === 0) { msg.payload = ''; return null; }",
     "msg.payload = filtered.join('<?xml version=\"1.0\" encoding=\"UTF-8\"?>');",
-    "node.status({fill: 'blue', shape: 'dot', text: filtered.length + ' CoT logged'});",
+    "node.status({fill: 'blue', shape: 'dot', text: filtered.length + ' CoT received'});",
     'return msg;',
 ])
 
@@ -417,14 +426,39 @@ function parseCot(xml) {
     };
 }
 
-async function postForm(url, body) {
-    var r = await fetch(url, {method:"POST", headers:{"Content-Type":"application/x-www-form-urlencoded"}, body: body});
-    return r.ok ? await r.json() : {error: r.status};
+// Use Node.js built-in http/https (available via libs) — no fetch() needed.
+function httpReq(url, method, body) {
+    return new Promise(function(resolve, reject) {
+        var u;
+        try { u = new URL(url); } catch(e) { reject(e); return; }
+        var secure = u.protocol !== "http:";
+        var mod = secure ? https : http;
+        var opts = {
+            hostname: u.hostname,
+            port: parseInt(u.port) || (secure ? 443 : 80),
+            path: u.pathname + (u.search || ""),
+            method: method,
+        };
+        if (body) {
+            opts.headers = {
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Content-Length": Buffer.byteLength(body)
+            };
+        }
+        var req = mod.request(opts, function(res) {
+            var d = "";
+            res.on("data", function(c) { d += c; });
+            res.on("end", function() {
+                try { resolve(JSON.parse(d)); } catch(_) { resolve({}); }
+            });
+        });
+        req.on("error", reject);
+        if (body) req.write(body);
+        req.end();
+    });
 }
-async function getJson(url) {
-    try { var r = await fetch(url); return r.ok ? await r.json() : {}; }
-    catch(_) { return {}; }
-}
+function postForm(url, body) { return httpReq(url, "POST", body); }
+function getJson(url)        { return httpReq(url, "GET",  null); }
 
 var raw = typeof msg.payload === "string" ? msg.payload : "";
 if (!raw.trim()) return null;
@@ -526,8 +560,8 @@ def _generate_flow_nodes(cfg):
     )
 
     return [
-        # ── Tab 1: Survey123 → TAKServer ──────────────────────────────────
-        {'id': tab1, 'type': 'tab', 'label': 'Survey123 → TAKServer',
+        # ── Tab 1: Esri CoT Sender ────────────────────────────────────────
+        {'id': tab1, 'type': 'tab', 'label': 'Esri CoT Sender',
          'disabled': False, 'info': 'Managed by infra-TAK Esri CoT Bridge', 'env': []},
         {'id': 'esri_inj', 'type': 'inject', 'z': tab1,
          'name': f'Poll every {poll}s',
@@ -546,7 +580,7 @@ def _generate_flow_nodes(cfg):
         {'id': 'esri_fn_cot', 'type': 'function', 'z': tab1,
          'name': 'Convert to CoT XML', 'func': cot_fn,
          'outputs': 1, 'timeout': 0, 'noerr': 0, 'initialize': '', 'finalize': '',
-         'libs': [],
+         'libs': [{'var': 'https', 'module': 'https'}, {'var': 'http', 'module': 'http'}],
          'x': 800, 'y': 160, 'wires': [['esri_tcp_out', 'esri_dbg_cot']]},
         {'id': 'esri_tcp_out', 'type': 'tcp out', 'z': tab1,
          'name': 'Send to TAKServer', 'host': tak_host, 'port': tak_port,
@@ -556,23 +590,23 @@ def _generate_flow_nodes(cfg):
          'active': True, 'tosidebar': True, 'console': False, 'tostatus': False,
          'complete': 'payload', 'targetType': 'msg', 'statusVal': '', 'statusType': 'auto',
          'x': 1020, 'y': 200, 'wires': []},
-        # ── Tab 2: CoT Receiver ───────────────────────────────────────────
-        {'id': tab2, 'type': 'tab', 'label': 'CoT Receiver',
+        # ── Tab 2: Esri CoT Receiver ──────────────────────────────────────
+        {'id': tab2, 'type': 'tab', 'label': 'Esri CoT Receiver',
          'disabled': False, 'info': 'Managed by infra-TAK Esri CoT Bridge', 'env': []},
         {'id': 'esri_tcp_in', 'type': 'tcp in', 'z': tab2,
          'name': 'Receive from TAKServer', 'server': 'client',
          'host': tak_host, 'port': tak_port, 'datamode': 'stream',
          'datatype': 'utf8', 'newline': '', 'topic': '', 'trim': False,
          'base64': False, 'tls': tls_id,
-         'x': 160, 'y': 200, 'wires': [['esri_dbg_raw', 'esri_fn_filter', 'esri_fn_fl']]},
+         'x': 160, 'y': 200, 'wires': [['esri_dbg_raw', 'esri_fn_filter']]},
         {'id': 'esri_dbg_raw', 'type': 'debug', 'z': tab2, 'name': 'Raw CoT (off)',
          'active': False, 'tosidebar': True, 'console': False, 'tostatus': False,
          'complete': 'payload', 'targetType': 'msg', 'statusVal': '', 'statusType': 'auto',
          'x': 400, 'y': 140, 'wires': []},
         {'id': 'esri_fn_filter', 'type': 'function', 'z': tab2,
-         'name': 'Filter Survey123 UIDs', 'func': _FILTER_FN,
+         'name': 'Filter Esri Sender UIDs', 'func': _FILTER_FN,
          'outputs': 1, 'timeout': 0, 'noerr': 0, 'initialize': '', 'finalize': '', 'libs': [],
-         'x': 420, 'y': 200, 'wires': [['esri_file', 'esri_dbg_filtered']]},
+         'x': 420, 'y': 200, 'wires': [['esri_file', 'esri_dbg_filtered', 'esri_fn_fl']]},
         {'id': 'esri_file', 'type': 'file', 'z': tab2, 'name': 'Log CoT',
          'filename': log_file, 'filenameType': 'str',
          'appendNewline': True, 'createDir': True, 'overwriteFile': 'false', 'encoding': 'none',
@@ -583,7 +617,8 @@ def _generate_flow_nodes(cfg):
          'x': 650, 'y': 240, 'wires': []},
         {'id': 'esri_fn_fl', 'type': 'function', 'z': tab2,
          'name': 'CoT → FeatureLayer', 'func': fl_fn,
-         'outputs': 1, 'timeout': 0, 'noerr': 0, 'initialize': '', 'finalize': '', 'libs': [],
+         'outputs': 1, 'timeout': 0, 'noerr': 0, 'initialize': '', 'finalize': '',
+         'libs': [{'var': 'https', 'module': 'https'}, {'var': 'http', 'module': 'http'}],
          'x': 420, 'y': 300, 'wires': [['esri_dbg_fl']]},
         {'id': 'esri_dbg_fl', 'type': 'debug', 'z': tab2, 'name': 'FL Write Result',
          'active': True, 'tosidebar': True, 'console': False, 'tostatus': False,
@@ -911,18 +946,6 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
       <span id="cert-upload-status" style="font-size:12px;color:var(--text-dim)">
         {% if cert_status.get('uploaded_at') %}Uploaded {{ cert_status.uploaded_at }}{% endif %}
       </span>
-    </div>
-  </div>
-
-  <!-- Log Settings -->
-  <div class="card">
-    <div class="card-title">CoT Log File</div>
-    <div class="form-group" style="max-width:480px">
-      <label class="form-label">Log file path (on the Node-RED host)</label>
-      <input id="log-file" class="form-input" type="text"
-             placeholder="cot-logged.txt"
-             value="{{ cfg.get('log_file','cot-logged.txt') }}">
-      <div class="hint">Incoming TAK CoT messages (excluding Survey123 echoes) are appended here. Relative paths resolve to Node-RED\'s working directory.</div>
     </div>
   </div>
 
@@ -1292,6 +1315,21 @@ document.addEventListener('DOMContentLoaded', () => {
     renderIconTable(saved);
   } else {
     ensureOtherRow();
+  }
+
+  // Restore cert password from localStorage (never sent to the server, just browser-cached)
+  const pw = localStorage.getItem('esri_cert_pw');
+  if (pw) {
+    const el = document.getElementById('cert-password');
+    if (el) { el.value = pw; el.placeholder = 'remembered'; }
+  }
+});
+
+// Persist cert password in localStorage whenever it changes
+document.addEventListener('input', function(e) {
+  if (e.target.id === 'cert-password') {
+    if (e.target.value) localStorage.setItem('esri_cert_pw', e.target.value);
+    else localStorage.removeItem('esri_cert_pw');
   }
 });
 
