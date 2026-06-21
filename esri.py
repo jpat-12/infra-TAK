@@ -266,11 +266,10 @@ def _build_cot_fn(field_map, icon_map, cot_type, remarks_fields, include_attachm
 
     if include_attachments:
         lines = common + [
-            '// https/http imported via function node libs — works on any Node.js version.',
+            '// https/http imported via libs; URL string passed directly (Node.js 10+).',
             'function fetchJson(url) {',
             '    return new Promise(function(resolve) {',
-            '        var u; try { u = new URL(url); } catch(_) { resolve({}); return; }',
-            '        var mod = u.protocol !== "http:" ? https : http;',
+            '        var mod = url.indexOf("https") === 0 ? https : http;',
             '        mod.get(url, function(res) {',
             '            var d = "";',
             '            res.on("data", function(c) { d += c; });',
@@ -426,26 +425,18 @@ function parseCot(xml) {
     };
 }
 
-// Use Node.js built-in http/https (available via libs) — no fetch() needed.
-function httpReq(url, method, body) {
+// Use Node.js built-in http/https (available via libs) — pass URL string directly,
+// no URL parsing class needed (http/https.request() accepts a string in Node.js 10+).
+function postForm(url, body) {
     return new Promise(function(resolve, reject) {
-        var u;
-        try { u = new URL(url); } catch(e) { reject(e); return; }
-        var secure = u.protocol !== "http:";
-        var mod = secure ? https : http;
-        var opts = {
-            hostname: u.hostname,
-            port: parseInt(u.port) || (secure ? 443 : 80),
-            path: u.pathname + (u.search || ""),
-            method: method,
-        };
-        if (body) {
-            opts.headers = {
+        var mod = url.indexOf("https") === 0 ? https : http;
+        var req = mod.request(url, {
+            method: "POST",
+            headers: {
                 "Content-Type": "application/x-www-form-urlencoded",
                 "Content-Length": Buffer.byteLength(body)
-            };
-        }
-        var req = mod.request(opts, function(res) {
+            }
+        }, function(res) {
             var d = "";
             res.on("data", function(c) { d += c; });
             res.on("end", function() {
@@ -453,12 +444,22 @@ function httpReq(url, method, body) {
             });
         });
         req.on("error", reject);
-        if (body) req.write(body);
+        req.write(body);
         req.end();
     });
 }
-function postForm(url, body) { return httpReq(url, "POST", body); }
-function getJson(url)        { return httpReq(url, "GET",  null); }
+function getJson(url) {
+    return new Promise(function(resolve) {
+        var mod = url.indexOf("https") === 0 ? https : http;
+        mod.get(url, function(res) {
+            var d = "";
+            res.on("data", function(c) { d += c; });
+            res.on("end", function() {
+                try { resolve(JSON.parse(d)); } catch(_) { resolve({}); }
+            });
+        }).on("error", function() { resolve({}); });
+    });
+}
 
 var raw = typeof msg.payload === "string" ? msg.payload : "";
 if (!raw.trim()) return null;
@@ -1010,6 +1011,17 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
   {% endif %}
 </div>
 
+<div id="deploy-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:900;align-items:center;justify-content:center">
+  <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:28px 32px;max-width:420px;width:90%;box-shadow:0 8px 40px rgba(0,0,0,.5)">
+    <div style="font-size:16px;font-weight:600;margin-bottom:10px">&#9654; Flow Deployed</div>
+    <p style="color:var(--text-secondary);font-size:13px;margin-bottom:22px">Open Node-RED to verify the flow and finish wiring up any custom nodes?</p>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn btn-ghost" onclick="closeDeployModal()">Stay Here</button>
+      <button class="btn btn-primary" onclick="window.open('/nodered','_blank');closeDeployModal()">Open Node-RED &rarr;</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -1416,6 +1428,19 @@ async function saveConfig() {
 }
 
 // ── Deploy ────────────────────────────────────────────────────────────────────
+function showDeployModal() {
+  const m = document.getElementById('deploy-modal');
+  m.style.display = 'flex';
+}
+function closeDeployModal() {
+  document.getElementById('deploy-modal').style.display = 'none';
+}
+// Close on backdrop click
+document.addEventListener('click', function(e) {
+  const m = document.getElementById('deploy-modal');
+  if (e.target === m) closeDeployModal();
+});
+
 async function deployFlow() {
   const btn = document.getElementById('deploy-btn');
   const status = document.getElementById('action-status');
@@ -1430,8 +1455,8 @@ async function deployFlow() {
     });
     const data = await res.json();
     if (data.ok) {
-      showToast(data.message || 'Deployed!', 'success');
       status.textContent = 'Deployed ✔';
+      showDeployModal();
     } else {
       showToast(data.error || 'Deploy failed', 'error');
       status.textContent = 'Error: ' + (data.error || 'unknown');
