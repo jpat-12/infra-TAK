@@ -51,6 +51,7 @@ INCIDENT_ICONS = {
 }
 DEFAULT_ICON = f'{_ICON_HASH}/Incident Icons/Placeholder Other.png'
 DEFAULT_COT_TYPE = 'a-h-G'
+COT_BLOCK_DEFAULT = ['b-t-f']   # TAKServer heartbeats — auto-blocked
 ESRI_KEY = 'esri_cot_bridge'
 
 CONFIG_DIR = os.environ.get('CONFIG_DIR') or os.path.join(
@@ -136,7 +137,7 @@ def _deploy_to_nodered(new_nodes, host='localhost', port=1880):
     rev = current.get('rev', '')
     existing = current.get('flows', current if isinstance(current, list) else [])
 
-    our_labels = {'Survey123 → TAKServer', 'TAKServer CoT Logger'}
+    our_labels = {'Survey123 → TAKServer', 'TAKServer CoT Logger', 'CoT Receiver'}
     our_tab_ids = {
         n['id'] for n in existing
         if n.get('type') == 'tab' and n.get('label', '') in our_labels
@@ -356,6 +357,139 @@ _FILTER_FN = '\n'.join([
     'return msg;',
 ])
 
+# ── CoT Receiver → FeatureLayer ───────────────────────────────────────────────
+# Uses __PLACEHOLDER__ tokens replaced by _build_cot_receiver_fn().
+# Written as a raw string so backslashes (regex literals) are preserved as-is.
+_COT_RECEIVER_FN_TPL = r'''// Configured via infra-TAK Esri CoT Bridge — CoT Receiver
+const FL_URL    = "__FL_URL__";
+const FL_TOKEN  = "__FL_TOKEN__";
+const COT_BLOCK = __COT_BLOCK__;
+const WRITE_MODE  = "__WRITE_MODE__";
+const MATCH_FIELD = "__MATCH_FIELD__";
+
+if (!FL_URL) { return null; }
+
+// Attribute extractor — walks the raw tag string, no backslash-heavy regex needed.
+function attr(xml, tag, a) {
+    var p = xml.indexOf("<" + tag + " ");
+    if (p < 0) p = xml.indexOf("<" + tag + ">");
+    if (p < 0) return "";
+    var e = xml.indexOf(">", p); if (e < 0) return "";
+    var chunk = xml.slice(p, e + 1);
+    var k = " " + a + "=\"";
+    var i = chunk.indexOf(k); if (i < 0) return "";
+    var s = i + k.length;
+    var j = chunk.indexOf("\"", s);
+    return j < 0 ? "" : chunk.slice(s, j);
+}
+
+function parseCot(xml) {
+    if (!xml.includes("<event")) return null;
+    var type = attr(xml, "event", "type");
+    if (!type || COT_BLOCK.some(function(p){ return type.indexOf(p) === 0; })) return null;
+    var lat = parseFloat(attr(xml, "point", "lat"));
+    var lon = parseFloat(attr(xml, "point", "lon"));
+    if (isNaN(lat) || isNaN(lon)) return null;
+    var rmS = xml.indexOf("<remarks"), rmE = xml.indexOf("</remarks>", rmS);
+    var remarks = (rmS >= 0 && rmE >= 0) ? xml.slice(xml.indexOf(">", rmS) + 1, rmE).trim() : "";
+    return {
+        geometry: {x: lon, y: lat, spatialReference: {wkid: 4326}},
+        attributes: {
+            uid:         attr(xml, "event", "uid"),
+            cot_type:    type,
+            how:         attr(xml, "event", "how"),
+            time:        attr(xml, "event", "time"),
+            stale:       attr(xml, "event", "stale"),
+            lat: lat, lon: lon,
+            hae:         parseFloat(attr(xml, "point", "hae"))    || 0,
+            ce:          parseFloat(attr(xml, "point", "ce"))     || 0,
+            callsign:    attr(xml, "contact", "callsign"),
+            remarks:     remarks,
+            speed:       parseFloat(attr(xml, "track", "speed"))  || 0,
+            course:      parseFloat(attr(xml, "track", "course")) || 0,
+            iconsetpath: attr(xml, "usericon", "iconsetpath"),
+            team_color:  attr(xml, "__group", "name"),
+            team_role:   attr(xml, "__group", "role"),
+            battery:     parseInt(attr(xml, "status", "battery")) || null,
+            tak_version: attr(xml, "takv", "version"),
+            device_uid:  attr(xml, "uid", "Droid")
+        }
+    };
+}
+
+async function postForm(url, body) {
+    var r = await fetch(url, {method:"POST", headers:{"Content-Type":"application/x-www-form-urlencoded"}, body: body});
+    return r.ok ? await r.json() : {error: r.status};
+}
+async function getJson(url) {
+    try { var r = await fetch(url); return r.ok ? await r.json() : {}; }
+    catch(_) { return {}; }
+}
+
+var raw = typeof msg.payload === "string" ? msg.payload : "";
+if (!raw.trim()) return null;
+
+// Split TCP stream on XML declaration boundary.
+var parts = raw.split("<?xml"), features = [];
+for (var i = 0; i < parts.length; i++) {
+    if (!parts[i].trim()) continue;
+    var f = parseCot("<?xml" + parts[i]);
+    if (f) features.push(f);
+}
+if (!features.length) {
+    node.status({fill:"yellow", shape:"ring", text:"all blocked"}); return null;
+}
+
+// Normalise FL_URL to base layer URL (strip /query, /0/query, trailing slash).
+var flBase = FL_URL.replace(/\/\d+\/query$/i,"").replace(/\/query$/i,"").replace(/\/\d+$/,"") + "/0";
+var tokBody = FL_TOKEN ? ("&token=" + encodeURIComponent(FL_TOKEN)) : "";
+var tokQS   = FL_TOKEN ? ("&token=" + encodeURIComponent(FL_TOKEN)) : "";
+
+(async function() {
+    var added = 0, updated = 0, errors = 0;
+    if (WRITE_MODE === "overwrite") {
+        for (var fi = 0; fi < features.length; fi++) {
+            var feat = features[fi];
+            try {
+                var mv   = String(feat.attributes[MATCH_FIELD] || feat.attributes.uid || "");
+                var qUrl = flBase + "/query?where=" + encodeURIComponent(MATCH_FIELD) + "+%3D+%27" + encodeURIComponent(mv) + "%27&outFields=OBJECTID&returnGeometry=false&f=json" + tokQS;
+                var qRes = await getJson(qUrl), ex = (qRes.features || [])[0];
+                var body = "f=json&features=" + encodeURIComponent(JSON.stringify([feat])) + tokBody;
+                if (ex) {
+                    feat.attributes.OBJECTID = (ex.attributes || {}).OBJECTID || (ex.attributes || {}).objectid;
+                    await postForm(flBase + "/updateFeatures", body); updated++;
+                } else {
+                    await postForm(flBase + "/addFeatures", body); added++;
+                }
+            } catch(e2) { errors++; node.error("FL write: " + e2.message); }
+        }
+    } else {
+        try {
+            var batchBody = "f=json&features=" + encodeURIComponent(JSON.stringify(features)) + tokBody;
+            await postForm(flBase + "/addFeatures", batchBody);
+            added = features.length;
+        } catch(e3) { errors = features.length; node.error("FL batch: " + e3.message); }
+    }
+    var st = [];
+    if (added)   st.push(added   + " added");
+    if (updated) st.push(updated + " updated");
+    if (errors)  st.push(errors  + " err");
+    node.status({fill: errors ? "red" : "green", shape: "dot", text: st.join(", ") || "ok"});
+    msg.payload = {added: added, updated: updated, errors: errors, total: features.length};
+    node.send(msg);
+})().catch(function(e) { node.error("CoT Receiver: " + e.message); node.send(null); });
+return;'''
+
+
+def _build_cot_receiver_fn(fl_url, fl_token, cot_block_types, write_mode, match_field):
+    code = _COT_RECEIVER_FN_TPL
+    code = code.replace('__FL_URL__',      _js(fl_url or ''))
+    code = code.replace('__FL_TOKEN__',    _js(fl_token or ''))
+    code = code.replace('__COT_BLOCK__',   json.dumps(cot_block_types or COT_BLOCK_DEFAULT))
+    code = code.replace('__WRITE_MODE__',  _js(write_mode or 'log_all'))
+    code = code.replace('__MATCH_FIELD__', _js(match_field or 'uid'))
+    return code
+
 
 def _generate_flow_nodes(cfg):
     tab1    = 'esri_t1'
@@ -382,6 +516,13 @@ def _generate_flow_nodes(cfg):
         cfg.get('survey_url', ''),
         cfg.get('token', ''),
         cfg.get('_icon_base_url', ''),
+    )
+    fl_fn = _build_cot_receiver_fn(
+        cfg.get('fl_url', ''),
+        cfg.get('fl_token', ''),
+        cfg.get('cot_block_types', COT_BLOCK_DEFAULT),
+        cfg.get('cot_write_mode', 'log_all'),
+        cfg.get('cot_match_field', 'uid'),
     )
 
     return [
@@ -415,15 +556,15 @@ def _generate_flow_nodes(cfg):
          'active': True, 'tosidebar': True, 'console': False, 'tostatus': False,
          'complete': 'payload', 'targetType': 'msg', 'statusVal': '', 'statusType': 'auto',
          'x': 1020, 'y': 200, 'wires': []},
-        # ── Tab 2: TAKServer CoT Logger ───────────────────────────────────
-        {'id': tab2, 'type': 'tab', 'label': 'TAKServer CoT Logger',
+        # ── Tab 2: CoT Receiver ───────────────────────────────────────────
+        {'id': tab2, 'type': 'tab', 'label': 'CoT Receiver',
          'disabled': False, 'info': 'Managed by infra-TAK Esri CoT Bridge', 'env': []},
         {'id': 'esri_tcp_in', 'type': 'tcp in', 'z': tab2,
          'name': 'Receive from TAKServer', 'server': 'client',
          'host': tak_host, 'port': tak_port, 'datamode': 'stream',
          'datatype': 'utf8', 'newline': '', 'topic': '', 'trim': False,
          'base64': False, 'tls': tls_id,
-         'x': 160, 'y': 200, 'wires': [['esri_dbg_raw', 'esri_fn_filter']]},
+         'x': 160, 'y': 200, 'wires': [['esri_dbg_raw', 'esri_fn_filter', 'esri_fn_fl']]},
         {'id': 'esri_dbg_raw', 'type': 'debug', 'z': tab2, 'name': 'Raw CoT (off)',
          'active': False, 'tosidebar': True, 'console': False, 'tostatus': False,
          'complete': 'payload', 'targetType': 'msg', 'statusVal': '', 'statusType': 'auto',
@@ -440,6 +581,14 @@ def _generate_flow_nodes(cfg):
          'active': True, 'tosidebar': True, 'console': False, 'tostatus': False,
          'complete': 'payload', 'targetType': 'msg', 'statusVal': '', 'statusType': 'auto',
          'x': 650, 'y': 240, 'wires': []},
+        {'id': 'esri_fn_fl', 'type': 'function', 'z': tab2,
+         'name': 'CoT → FeatureLayer', 'func': fl_fn,
+         'outputs': 1, 'timeout': 0, 'noerr': 0, 'initialize': '', 'finalize': '', 'libs': [],
+         'x': 420, 'y': 300, 'wires': [['esri_dbg_fl']]},
+        {'id': 'esri_dbg_fl', 'type': 'debug', 'z': tab2, 'name': 'FL Write Result',
+         'active': True, 'tosidebar': True, 'console': False, 'tostatus': False,
+         'complete': 'payload', 'targetType': 'msg', 'statusVal': '', 'statusType': 'auto',
+         'x': 690, 'y': 300, 'wires': []},
         # ── Shared TLS config ──────────────────────────────────────────────
         {'id': tls_id, 'type': 'tls-config', 'name': 'TAK Server TLS (Esri)',
          'cert': tls_cert, 'key': tls_key, 'ca': tls_ca,
@@ -774,6 +923,55 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
              placeholder="cot-logged.txt"
              value="{{ cfg.get('log_file','cot-logged.txt') }}">
       <div class="hint">Incoming TAK CoT messages (excluding Survey123 echoes) are appended here. Relative paths resolve to Node-RED\'s working directory.</div>
+    </div>
+  </div>
+
+  <!-- CoT Receiver → FeatureLayer -->
+  <div class="card">
+    <div class="card-title">CoT Receiver &rarr; FeatureLayer</div>
+    <p class="hint" style="margin-bottom:14px">Write incoming TAK position reports to an ArcGIS FeatureLayer. Download the CSV template, upload it to ArcGIS Online as a Hosted Feature Layer, then paste the URL and a write token here. Redeploy to push changes to Node-RED.</p>
+    <div class="controls" style="margin-bottom:16px">
+      <a href="/api/esri/cot-template.csv" download class="btn btn-ghost btn-sm">&#128229; Download CoT CSV Template</a>
+    </div>
+    <div class="grid-2">
+      <div class="form-group">
+        <label class="form-label">FeatureLayer URL (write target)</label>
+        <input id="fl-url" class="form-input" type="url"
+               placeholder="https://services.arcgis.com/.../FeatureServer/0"
+               value="{{ cfg.get('fl_url','') }}">
+        <div class="hint">Service or layer URL &mdash; /0 will be appended automatically if not already a layer URL</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Write Token</label>
+        <input id="fl-token" class="form-input" type="password"
+               placeholder="ArcGIS token with edit rights"
+               value="{{ cfg.get('fl_token','') }}">
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="form-group">
+        <label class="form-label">Write Mode</label>
+        <select id="cot-write-mode" class="form-input" onchange="toggleMatchField()" style="max-width:300px">
+          <option value="log_all" {{ 'selected' if cfg.get('cot_write_mode','log_all')=='log_all' else '' }}>Log All &mdash; append every position</option>
+          <option value="overwrite" {{ 'selected' if cfg.get('cot_write_mode','')=='overwrite' else '' }}>Overwrite &amp; Update &mdash; update by match field</option>
+        </select>
+      </div>
+      <div class="form-group" id="cot-match-wrap" style="{{ '' if cfg.get('cot_write_mode','') == 'overwrite' else 'display:none' }}">
+        <label class="form-label">Match Field</label>
+        <input id="cot-match-field" class="form-input" type="text"
+               placeholder="uid"
+               style="max-width:200px"
+               value="{{ cfg.get('cot_match_field','uid') }}">
+        <div class="hint">FeatureLayer field used to find existing records (default: uid)</div>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Blocked CoT Types <span style="color:var(--text-dim);font-weight:400">(comma-separated prefixes)</span></label>
+      <input id="cot-block-types" class="form-input" type="text"
+             placeholder="b-t-f"
+             style="max-width:480px"
+             value="{{ ','.join(cfg.get('cot_block_types', ['b-t-f'])) }}">
+      <div class="hint">Messages whose type starts with any listed prefix are silently dropped. TAKServer heartbeats (b-t-f) are blocked by default.</div>
     </div>
   </div>
 
@@ -1138,6 +1336,11 @@ function collectIconMap() {
 }
 
 // ── Save config ───────────────────────────────────────────────────────────────
+function toggleMatchField() {
+  const mode = document.getElementById('cot-write-mode').value;
+  document.getElementById('cot-match-wrap').style.display = mode === 'overwrite' ? '' : 'none';
+}
+
 function buildCfg() {
   return {
     survey_url:          document.getElementById('survey-url').value.trim(),
@@ -1154,6 +1357,12 @@ function buildCfg() {
     },
     remarks_fields: collectRemarksFields(),
     icon_mapping:   collectIconMap(),
+    fl_url:          document.getElementById('fl-url').value.trim(),
+    fl_token:        document.getElementById('fl-token').value.trim(),
+    cot_write_mode:  document.getElementById('cot-write-mode').value,
+    cot_match_field: document.getElementById('cot-match-field').value.trim() || 'uid',
+    cot_block_types: document.getElementById('cot-block-types').value
+                       .split(',').map(s => s.trim()).filter(Boolean),
   };
 }
 
@@ -1555,6 +1764,31 @@ def register_routes(app, login_required, load_settings, save_settings):
             return jsonify({'ok': False, 'error': f'Query failed: {e}'})
 
         return jsonify({'ok': True, 'values': sorted(seen)})
+
+    # ── CoT CSV Template ──────────────────────────────────────────────────────
+
+    @app.route('/api/esri/cot-template.csv')
+    @login_required
+    def esri_cot_template():
+        headers = [
+            'uid','cot_type','how','time','stale',
+            'lat','lon','hae','ce',
+            'callsign','remarks','speed','course',
+            'iconsetpath','team_color','team_role',
+            'battery','tak_version','device_uid',
+        ]
+        sample = [
+            'ANDROID-abc123','a-f-G-U-C','h-e',
+            '2024-01-01T00:00:00Z','2024-01-01T00:05:00Z',
+            '37.1234','-117.1234','100.0','9.0',
+            'CALLSIGN-1','Sample remarks','0.0','0.0',
+            'a-f-G/icon.png','Cyan','Team Member','85','5.2.0.1','CALLSIGN-1',
+        ]
+        csv_text = ','.join(headers) + '\n' + ','.join(sample) + '\n'
+        resp = make_response(csv_text)
+        resp.headers['Content-Type'] = 'text/csv; charset=utf-8'
+        resp.headers['Content-Disposition'] = 'attachment; filename="cot-template.csv"'
+        return resp
 
     # ── Deploy ────────────────────────────────────────────────────────────────
 
