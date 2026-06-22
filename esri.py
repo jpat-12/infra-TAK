@@ -350,18 +350,16 @@ def _build_cot_fn(field_map, icon_map, cot_type, remarks_fields, include_attachm
 
 _FILTER_FN = '\n'.join([
     'const data = msg.payload;',
-    "if (!data || data.trim() === '') return null;",
-    "const messages = data.split('<?xml version=\"1.0\" encoding=\"UTF-8\"?>');",
-    'function isEsriSender(m) {',
-    '    const match = m.match(/uid="([^"]+)"/);',
-    '    if (!match) return false;',
-    '    const uid = match[1];',
-    "    return uid.startsWith('ESRI-') || uid.startsWith('Survey123_');",
-    '}',
-    "const filtered = messages.filter(m => m.trim() !== '' && !isEsriSender(m));",
-    "if (filtered.length === 0) { msg.payload = ''; return null; }",
-    "msg.payload = filtered.join('<?xml version=\"1.0\" encoding=\"UTF-8\"?>');",
-    "node.status({fill: 'blue', shape: 'dot', text: filtered.length + ' CoT received'});",
+    "if (!data || !data.trim()) return null;",
+    '// Strip entire <event>…</event> blocks sent by the Esri CoT Sender.',
+    '// Global regex works regardless of XML declaration format or messages-per-chunk.',
+    'const cleaned = data.replace(',
+    '    /<event\\b[^>]*\\suid="(?:ESRI-|Survey123_)[^"]*"[\\s\\S]*?<\\/event>/g,',
+    "    ''",
+    ').trim();',
+    "if (!cleaned) { msg.payload = ''; return null; }",
+    'msg.payload = cleaned;',
+    "node.status({fill: 'blue', shape: 'dot', text: 'CoT received'});",
     'return msg;',
 ])
 
@@ -1011,13 +1009,13 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
   {% endif %}
 </div>
 
-<div id="deploy-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:900;align-items:center;justify-content:center">
-  <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:28px 32px;max-width:420px;width:90%;box-shadow:0 8px 40px rgba(0,0,0,.5)">
+<div id="deploy-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:900;align-items:center;justify-content:center">
+  <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:28px 32px;max-width:420px;width:90%;box-shadow:0 8px 40px rgba(0,0,0,.6)">
     <div style="font-size:16px;font-weight:600;margin-bottom:10px">&#9654; Flow Deployed</div>
     <p style="color:var(--text-secondary);font-size:13px;margin-bottom:22px">Open Node-RED to verify the flow and finish wiring up any custom nodes?</p>
     <div style="display:flex;gap:10px;justify-content:flex-end">
       <button class="btn btn-ghost" onclick="closeDeployModal()">Stay Here</button>
-      <button class="btn btn-primary" onclick="window.open('/nodered','_blank');closeDeployModal()">Open Node-RED &rarr;</button>
+      <button class="btn btn-primary" onclick="window.open('{{ nr_url }}','_blank');closeDeployModal()">Open Node-RED &rarr;</button>
     </div>
   </div>
 </div>
@@ -1550,6 +1548,8 @@ def register_routes(app, login_required, load_settings, save_settings):
 
         deployed = cfg.get('deployed', False)
         last_deployed = cfg.get('last_deployed', '')
+        fqdn = settings.get('fqdn', '')
+        nr_url = f'https://nodered.{fqdn}' if fqdn else '/nodered'
 
         resp = make_response(render_template_string(
             ESRI_TEMPLATE,
@@ -1562,6 +1562,7 @@ def register_routes(app, login_required, load_settings, save_settings):
             saved_remarks_json=saved_remarks_json,
             cert_status=cert_status,
             custom_icons=custom_icons,
+            nr_url=nr_url,
         ))
         resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
         return resp
