@@ -565,7 +565,7 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
 
     <hr>
     <div class="card-title" style="margin-top:4px">TLS Certificates</div>
-    <div id="tls-section" style="{{ '' if cfg.get('tls_enabled') else 'opacity:.4;pointer-events:none' }}">
+    <div id="tls-section">
       <div style="display:flex;gap:8px;margin-bottom:16px">
         <button class="format-tab active" id="fmt-pem" onclick="setCertFormat('pem')">PEM files (cert + key)</button>
         <button class="format-tab" id="fmt-p12" onclick="setCertFormat('p12')">PKCS12 / P12</button>
