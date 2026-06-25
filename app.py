@@ -1596,11 +1596,21 @@ def detect_modules():
         'priority': 7,
         'requires': ['nodered'],
     }
-    # ADS-B CoT Bridge (adsbcot container, ~/adsbcot/docker-compose.yml)
+    # ADS-B CoT Bridge (adsbcot container, local or remote)
     try:
         import adsb as _adsb_mod
-        _adsb_installed = _adsb_mod._compose_exists()
-        _adsb_running   = _adsb_mod._container_running() if _adsb_installed else False
+        _adsb_deploy_cfg = _get_module_deployment_config(settings, 'adsb_deployment')
+        if _adsb_deploy_cfg.get('target_mode') == 'remote':
+            _adsb_remote = _adsb_deploy_cfg.get('remote', {})
+            _adsb_installed = bool(_adsb_deploy_cfg.get('deployed') and (_adsb_remote.get('host') or '').strip())
+            if _adsb_installed:
+                _ok, _out = _ssh_probe(_adsb_remote, "docker ps --filter name=adsbcot --format '{{.Status}}' 2>/dev/null", timeout=12)
+                _adsb_running = bool(_ok and _out and 'Up' in _out)
+            else:
+                _adsb_running = False
+        else:
+            _adsb_installed = _adsb_mod._compose_exists()
+            _adsb_running   = _adsb_mod._container_running() if _adsb_installed else False
     except Exception:
         _adsb_installed = False
         _adsb_running   = False
