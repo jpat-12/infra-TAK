@@ -426,12 +426,12 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
   {% endif %}
 
   <!-- ── Deployment Target ─────────────────────────────────────────────── -->
-  <div class="collapsible" id="section-target">
-    <div class="collapsible-header" onclick="toggleSection('target')">
+  <details class="collapsible" id="section-target" style="padding:0">
+    <summary class="collapsible-header" style="list-style:none;display:flex;align-items:center;justify-content:space-between;padding:16px 24px;cursor:pointer">
       <span class="card-title" style="margin:0">Deployment Target</span>
-      <span id="target-toggle-icon" style="font-size:18px;color:var(--text-dim);transition:transform .2s">&#9662;</span>
-    </div>
-    <div class="collapsible-body" id="target-body">
+      <span style="font-size:18px;color:var(--text-dim)">&#9662;</span>
+    </summary>
+    <div class="collapsible-body" style="display:block;padding:0 24px 24px;border-top:1px solid var(--border)" id="target-body">
       <div class="form-group" style="margin-top:16px">
         <label class="form-label">Where should adsbcot run?</label>
         <select id="target-mode" class="form-input" style="max-width:320px" onchange="onTargetModeChange()">
@@ -484,7 +484,7 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
         <span id="target-save-msg" style="font-size:12px;color:var(--text-dim);margin-left:8px"></span>
       </div>
     </div>
-  </div>
+  </details>
 
   <!-- ── Remote host metrics (shown when remote + installed) ───────────── -->
   {% if remote_host and installed %}
