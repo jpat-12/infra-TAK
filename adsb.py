@@ -574,7 +574,7 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
       <div id="cert-pem-section">
         <div class="upload-row">
           <label class="upload-label">&#128196; Client Certificate (.pem/.crt)
-            <input type="file" id="file-cert" accept=".pem,.crt,.cer" onchange="setFileLabel(this,'lbl-cert')">
+            <input type="file" id="file-cert" accept=".pem,.crt,.cer">
           </label>
           <span class="cert-file-status {{ 'ok' if cert_status.get('has_cert') else '' }}" id="lbl-cert">
             {{ cert_status.get('cert_name','no file') }}
@@ -582,7 +582,7 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
         </div>
         <div class="upload-row">
           <label class="upload-label">&#128196; Private Key (.key/.pem)
-            <input type="file" id="file-key" accept=".key,.pem" onchange="setFileLabel(this,'lbl-key')">
+            <input type="file" id="file-key" accept=".key,.pem">
           </label>
           <span class="cert-file-status {{ 'ok' if cert_status.get('has_key') else '' }}" id="lbl-key">
             {{ cert_status.get('key_name','no file') }}
@@ -592,7 +592,7 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
       <div id="cert-p12-section" style="display:none">
         <div class="upload-row">
           <label class="upload-label">&#128196; P12 / PFX file
-            <input type="file" id="file-p12" accept=".p12,.pfx" onchange="setFileLabel(this,'lbl-p12')">
+            <input type="file" id="file-p12" accept=".p12,.pfx">
           </label>
           <span class="cert-file-status {{ 'ok' if cert_status.get('has_cert') else '' }}" id="lbl-p12">
             {{ cert_status.get('cert_name','no file') }}
@@ -601,7 +601,7 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
       </div>
       <div class="upload-row">
         <label class="upload-label">&#128196; CA Certificate <span style="color:var(--text-dim);font-weight:400">(optional)</span>
-          <input type="file" id="file-ca" accept=".pem,.crt,.cer,.p12,.pfx" onchange="setFileLabel(this,'lbl-ca')">
+          <input type="file" id="file-ca" accept=".pem,.crt,.cer,.p12,.pfx">
         </label>
         <span class="cert-file-status {{ 'ok' if cert_status.get('has_ca') else '' }}" id="lbl-ca">
           {{ cert_status.get('ca_name','no file') }}
@@ -662,7 +662,17 @@ function updatePreview() {
     'https://api.airplanes.live/v2/point/' + lat + '/' + lon + '/' + r;
 }
 ['lat','lon','radius'].forEach(function(id){ var el=document.getElementById(id); if(el) el.addEventListener('input',updatePreview); });
-document.addEventListener('DOMContentLoaded', function(){ updatePreview(); onTargetModeChange(); });
+document.addEventListener('DOMContentLoaded', function(){
+  updatePreview();
+  onTargetModeChange();
+  onTlsToggle();
+  ['file-cert','file-key','file-p12','file-ca'].forEach(function(id){
+    var el = document.getElementById(id);
+    if (!el) return;
+    var labelMap = {'file-cert':'lbl-cert','file-key':'lbl-key','file-p12':'lbl-p12','file-ca':'lbl-ca'};
+    el.addEventListener('change', function(){ setFileLabel(this, labelMap[id]); });
+  });
+});
 
 // ── Collapsible sections ──────────────────────────────────────────────────────
 function toggleSection(id) {
