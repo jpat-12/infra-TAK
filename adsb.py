@@ -409,6 +409,7 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
 </head>
 <body>
 {{ sidebar_html }}
+<div id="js-error-banner" style="display:none;position:fixed;top:0;left:0;right:0;background:#ef4444;color:#fff;padding:10px 20px;font-size:13px;font-family:monospace;z-index:99999"></div>
 <div class="main">
   <div class="page-header">
     <h1>&#9992; ADS-B CoT Bridge</h1>
@@ -651,6 +652,7 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
 <div class="toast" id="toast"></div>
 
 <script>
+window.onerror = function(msg,src,line){ var el=document.getElementById('js-error-banner'); if(el){el.textContent='JS error: '+msg+' (line '+line+')';el.style.display='block';} return false; };
 // ── Feed URL preview ──────────────────────────────────────────────────────────
 function updatePreview() {
   var lat = document.getElementById('lat').value.trim() || '0.0';
