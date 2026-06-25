@@ -1596,6 +1596,23 @@ def detect_modules():
         'priority': 7,
         'requires': ['nodered'],
     }
+    # ADS-B CoT Bridge (adsbcot container, ~/adsbcot/docker-compose.yml)
+    try:
+        import adsb as _adsb_mod
+        _adsb_installed = _adsb_mod._compose_exists()
+        _adsb_running   = _adsb_mod._container_running() if _adsb_installed else False
+    except Exception:
+        _adsb_installed = False
+        _adsb_running   = False
+    modules['adsb_cot_bridge'] = {
+        'name': 'ADS-B CoT Bridge',
+        'installed': _adsb_installed,
+        'running': _adsb_running,
+        'description': 'Airplanes.live → TAKServer via adsbcot container',
+        'icon': '✈',
+        'route': '/adsb',
+        'priority': 8,
+    }
     # CloudTAK (local or remote deployment target)
     cloudtak_dir = os.path.expanduser('~/CloudTAK')
     cloudtak_cfg = _get_cloudtak_deployment_config(settings)
@@ -1951,6 +1968,9 @@ def render_sidebar(modules, active_path, takwerx_logo_url=None):
     esri = modules.get('esri_cot_bridge', {})
     if esri.get('installed'):
         parts.append(link('/esri', '<span class="nav-icon material-symbols-outlined">map</span><span>Esri CoT Bridge</span>'))
+    adsb = modules.get('adsb_cot_bridge', {})
+    if adsb.get('installed'):
+        parts.append(link('/adsb', '<span class="nav-icon material-symbols-outlined">flight</span><span>ADS-B CoT Bridge</span>'))
     email = modules.get('emailrelay', {})
     if email.get('installed'):
         parts.append(link('/emailrelay', '<span class="nav-icon material-symbols-outlined">outgoing_mail</span>Email Relay'))
@@ -64277,6 +64297,12 @@ try:
     _esri_module.register_routes(app, login_required, load_settings, save_settings)
 except Exception as _e:
     print(f'[esri] Failed to register Esri CoT Bridge module: {_e}', flush=True)
+
+try:
+    import adsb as _adsb_module
+    _adsb_module.register_routes(app, login_required, load_settings, save_settings)
+except Exception as _e:
+    print(f'[adsb] Failed to register ADS-B CoT Bridge module: {_e}', flush=True)
 
 _startup_migrations()
 _post_update_auto_deploy()
