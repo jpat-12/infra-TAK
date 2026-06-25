@@ -575,48 +575,40 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
 
     <!-- PEM section -->
     <div id="cert-pem-section">
-      <div class="upload-row">
-        <label class="upload-label">&#128196; Client Certificate (.pem/.crt)
-          <input type="file" id="file-cert" accept=".pem,.crt,.cer" onchange="setFileLabel(this,'lbl-cert')">
+      <div class="form-group">
+        <label class="form-label">&#128196; Client Certificate (.pem/.crt)
+          {% if cert_status.get('has_cert') %}<span style="color:var(--green);font-size:11px;margin-left:8px">&#10003; {{ cert_status.get('cert_name') }} on disk</span>{% endif %}
         </label>
-        <span class="cert-file-status {{ 'ok' if cert_status.get('has_cert') else 'missing' }}" id="lbl-cert">
-          {{ cert_status.get('cert_name','no file') }}
-        </span>
+        <input type="file" id="file-cert" accept=".pem,.crt,.cer" class="form-input" style="padding:6px">
       </div>
-      <div class="upload-row">
-        <label class="upload-label">&#128196; Private Key (.key/.pem)
-          <input type="file" id="file-key" accept=".key,.pem" onchange="setFileLabel(this,'lbl-key')">
+      <div class="form-group">
+        <label class="form-label">&#128196; Private Key (.key/.pem)
+          {% if cert_status.get('has_key') %}<span style="color:var(--green);font-size:11px;margin-left:8px">&#10003; {{ cert_status.get('key_name') }} on disk</span>{% endif %}
         </label>
-        <span class="cert-file-status {{ 'ok' if cert_status.get('has_key') else 'missing' }}" id="lbl-key">
-          {{ cert_status.get('key_name','no file') }}
-        </span>
+        <input type="file" id="file-key" accept=".key,.pem" class="form-input" style="padding:6px">
       </div>
     </div>
 
     <!-- P12 section -->
     <div id="cert-p12-section" style="display:none">
-      <div class="upload-row">
-        <label class="upload-label">&#128196; P12 / PFX file
-          <input type="file" id="file-p12" accept=".p12,.pfx" onchange="setFileLabel(this,'lbl-p12')">
+      <div class="form-group">
+        <label class="form-label">&#128196; P12 / PFX file
+          {% if cert_status.get('has_cert') %}<span style="color:var(--green);font-size:11px;margin-left:8px">&#10003; on disk</span>{% endif %}
         </label>
-        <span class="cert-file-status {{ 'ok' if cert_status.get('has_cert') else 'missing' }}" id="lbl-p12">
-          {{ cert_status.get('cert_name','no file') }}
-        </span>
+        <input type="file" id="file-p12" accept=".p12,.pfx" class="form-input" style="padding:6px">
       </div>
     </div>
 
-    <!-- CA (shared between PEM and P12 modes) -->
-    <div class="upload-row">
-      <label class="upload-label">&#128196; CA Certificate <span style="color:var(--text-dim);font-weight:400">(optional — PEM or P12)</span>
-        <input type="file" id="file-ca" accept=".pem,.crt,.cer,.p12,.pfx" onchange="setFileLabel(this,'lbl-ca')">
+    <!-- CA -->
+    <div class="form-group">
+      <label class="form-label">&#128196; CA Certificate <span style="color:var(--text-dim);font-weight:400">(optional)</span>
+        {% if cert_status.get('has_ca') %}<span style="color:var(--green);font-size:11px;margin-left:8px">&#10003; {{ cert_status.get('ca_name') }} on disk</span>{% endif %}
       </label>
-      <span class="cert-file-status {{ 'ok' if cert_status.get('has_ca') else '' }}" id="lbl-ca">
-        {{ cert_status.get('ca_name','no file') }}
-      </span>
+      <input type="file" id="file-ca" accept=".pem,.crt,.cer,.p12,.pfx" class="form-input" style="padding:6px">
     </div>
 
-    <!-- Single shared password -->
-    <div class="form-group" style="max-width:320px;margin-top:8px">
+    <!-- Password -->
+    <div class="form-group" style="max-width:320px">
       <label class="form-label">Certificate Password</label>
       <input id="cert-password" class="form-input" type="password" placeholder="leave blank if no password">
       <div class="hint">One password for both the private key and any P12 files</div>
