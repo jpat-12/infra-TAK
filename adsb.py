@@ -558,7 +558,7 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
     <div class="form-group">
       <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px">
         <input type="checkbox" id="tls-enabled" style="width:16px;height:16px;accent-color:var(--accent)"
-               {{ 'checked' if cfg.get('tls_enabled') else '' }} onchange="onTlsToggle()">
+               {{ 'checked' if cfg.get('tls_enabled') else '' }}>
         <span>Enable TLS (mTLS with client certificate)</span>
       </label>
       <div class="hint" style="margin-top:6px">Enable for port 8089. Upload a client certificate below.</div>
