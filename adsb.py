@@ -566,57 +566,67 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
 
     <hr>
     <div class="card-title" style="margin-top:4px">TLS Certificates</div>
-    <div id="tls-section">
-      <div style="display:flex;gap:8px;margin-bottom:16px">
-        <button class="format-tab active" id="fmt-pem" onclick="setCertFormat('pem')">PEM files (cert + key)</button>
-        <button class="format-tab" id="fmt-p12" onclick="setCertFormat('p12')">PKCS12 / P12</button>
-      </div>
-      <div id="cert-pem-section">
-        <div class="upload-row">
-          <label class="upload-label">&#128196; Client Certificate (.pem/.crt)
-            <input type="file" id="file-cert" accept=".pem,.crt,.cer">
-          </label>
-          <span class="cert-file-status {{ 'ok' if cert_status.get('has_cert') else '' }}" id="lbl-cert">
-            {{ cert_status.get('cert_name','no file') }}
-          </span>
-        </div>
-        <div class="upload-row">
-          <label class="upload-label">&#128196; Private Key (.key/.pem)
-            <input type="file" id="file-key" accept=".key,.pem">
-          </label>
-          <span class="cert-file-status {{ 'ok' if cert_status.get('has_key') else '' }}" id="lbl-key">
-            {{ cert_status.get('key_name','no file') }}
-          </span>
-        </div>
-      </div>
-      <div id="cert-p12-section" style="display:none">
-        <div class="upload-row">
-          <label class="upload-label">&#128196; P12 / PFX file
-            <input type="file" id="file-p12" accept=".p12,.pfx">
-          </label>
-          <span class="cert-file-status {{ 'ok' if cert_status.get('has_cert') else '' }}" id="lbl-p12">
-            {{ cert_status.get('cert_name','no file') }}
-          </span>
-        </div>
+
+    <!-- Format toggle -->
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <button class="format-tab active" id="fmt-pem" onclick="setCertFormat('pem')">PEM files (cert + key)</button>
+      <button class="format-tab" id="fmt-p12" onclick="setCertFormat('p12')">PKCS12 / P12</button>
+    </div>
+
+    <!-- PEM section -->
+    <div id="cert-pem-section">
+      <div class="upload-row">
+        <label class="upload-label">&#128196; Client Certificate (.pem/.crt)
+          <input type="file" id="file-cert" accept=".pem,.crt,.cer" onchange="setFileLabel(this,'lbl-cert')">
+        </label>
+        <span class="cert-file-status {{ 'ok' if cert_status.get('has_cert') else 'missing' }}" id="lbl-cert">
+          {{ cert_status.get('cert_name','no file') }}
+        </span>
       </div>
       <div class="upload-row">
-        <label class="upload-label">&#128196; CA Certificate <span style="color:var(--text-dim);font-weight:400">(optional)</span>
-          <input type="file" id="file-ca" accept=".pem,.crt,.cer,.p12,.pfx">
+        <label class="upload-label">&#128196; Private Key (.key/.pem)
+          <input type="file" id="file-key" accept=".key,.pem" onchange="setFileLabel(this,'lbl-key')">
         </label>
-        <span class="cert-file-status {{ 'ok' if cert_status.get('has_ca') else '' }}" id="lbl-ca">
-          {{ cert_status.get('ca_name','no file') }}
+        <span class="cert-file-status {{ 'ok' if cert_status.get('has_key') else 'missing' }}" id="lbl-key">
+          {{ cert_status.get('key_name','no file') }}
         </span>
       </div>
-      <div class="form-group" style="max-width:320px;margin-top:8px">
-        <label class="form-label">Certificate Password</label>
-        <input id="cert-password" class="form-input" type="password" placeholder="leave blank if no password">
-      </div>
-      <div class="controls" style="margin-top:12px">
-        <button class="btn btn-ghost btn-sm" id="upload-btn" onclick="uploadCerts()">&#8679; Upload Certificates</button>
-        <span id="cert-upload-status" style="font-size:12px;color:var(--text-dim)">
-          {% if cert_status.get('has_cert') %}Certificates on disk{% endif %}
+    </div>
+
+    <!-- P12 section -->
+    <div id="cert-p12-section" style="display:none">
+      <div class="upload-row">
+        <label class="upload-label">&#128196; P12 / PFX file
+          <input type="file" id="file-p12" accept=".p12,.pfx" onchange="setFileLabel(this,'lbl-p12')">
+        </label>
+        <span class="cert-file-status {{ 'ok' if cert_status.get('has_cert') else 'missing' }}" id="lbl-p12">
+          {{ cert_status.get('cert_name','no file') }}
         </span>
       </div>
+    </div>
+
+    <!-- CA (shared between PEM and P12 modes) -->
+    <div class="upload-row">
+      <label class="upload-label">&#128196; CA Certificate <span style="color:var(--text-dim);font-weight:400">(optional — PEM or P12)</span>
+        <input type="file" id="file-ca" accept=".pem,.crt,.cer,.p12,.pfx" onchange="setFileLabel(this,'lbl-ca')">
+      </label>
+      <span class="cert-file-status {{ 'ok' if cert_status.get('has_ca') else '' }}" id="lbl-ca">
+        {{ cert_status.get('ca_name','no file') }}
+      </span>
+    </div>
+
+    <!-- Single shared password -->
+    <div class="form-group" style="max-width:320px;margin-top:8px">
+      <label class="form-label">Certificate Password</label>
+      <input id="cert-password" class="form-input" type="password" placeholder="leave blank if no password">
+      <div class="hint">One password for both the private key and any P12 files</div>
+    </div>
+
+    <div class="controls" style="margin-top:12px">
+      <button class="btn btn-ghost btn-sm" id="upload-btn" onclick="uploadCerts()">&#8679; Upload Certificates</button>
+      <span id="cert-upload-status" style="font-size:12px;color:var(--text-dim)">
+        {% if cert_status.get('has_cert') %}Certificates on disk{% endif %}
+      </span>
     </div>
   </div>
 
@@ -662,17 +672,7 @@ function updatePreview() {
     'https://api.airplanes.live/v2/point/' + lat + '/' + lon + '/' + r;
 }
 ['lat','lon','radius'].forEach(function(id){ var el=document.getElementById(id); if(el) el.addEventListener('input',updatePreview); });
-document.addEventListener('DOMContentLoaded', function(){
-  updatePreview();
-  onTargetModeChange();
-  onTlsToggle();
-  ['file-cert','file-key','file-p12','file-ca'].forEach(function(id){
-    var el = document.getElementById(id);
-    if (!el) return;
-    var labelMap = {'file-cert':'lbl-cert','file-key':'lbl-key','file-p12':'lbl-p12','file-ca':'lbl-ca'};
-    el.addEventListener('change', function(){ setFileLabel(this, labelMap[id]); });
-  });
-});
+document.addEventListener('DOMContentLoaded', function(){ updatePreview(); onTargetModeChange(); });
 
 // ── Collapsible sections ──────────────────────────────────────────────────────
 function toggleSection(id) {
@@ -757,16 +757,9 @@ function setSshStatus(msg, color) {
   el.style.color = color === 'green' ? 'var(--green)' : color === 'red' ? 'var(--red)' : 'var(--text-dim)';
 }
 
-// ── TLS toggle ────────────────────────────────────────────────────────────────
-function onTlsToggle() {
-  var enabled = document.getElementById('tls-enabled').checked;
-  var sec = document.getElementById('tls-section');
-  sec.style.opacity = enabled ? '' : '0.4';
-  sec.style.pointerEvents = enabled ? '' : 'none';
-}
+// ── Cert upload ───────────────────────────────────────────────────────────────
+let _certFormat = 'pem';
 
-// ── Cert format tabs ──────────────────────────────────────────────────────────
-var _certFormat = 'pem';
 function setCertFormat(fmt) {
   _certFormat = fmt;
   document.getElementById('cert-pem-section').style.display = fmt === 'pem' ? '' : 'none';
@@ -774,41 +767,53 @@ function setCertFormat(fmt) {
   document.getElementById('fmt-pem').classList.toggle('active', fmt === 'pem');
   document.getElementById('fmt-p12').classList.toggle('active', fmt === 'p12');
 }
+
 function setFileLabel(input, labelId) {
-  var span = document.getElementById(labelId);
+  const span = document.getElementById(labelId);
   if (input.files && input.files[0]) {
     span.textContent = input.files[0].name;
     span.className = 'cert-file-status ok';
   }
 }
 
-// ── Cert upload ───────────────────────────────────────────────────────────────
 async function uploadCerts() {
-  var btn = document.getElementById('upload-btn');
-  var status = document.getElementById('cert-upload-status');
-  var fd = new FormData();
+  const btn = document.getElementById('upload-btn');
+  const status = document.getElementById('cert-upload-status');
+  const password = document.getElementById('cert-password').value;
+  const fd = new FormData();
   fd.append('format', _certFormat);
-  fd.append('password', document.getElementById('cert-password').value);
+  fd.append('password', password);
   if (_certFormat === 'pem') {
-    var cert = document.getElementById('file-cert').files[0];
-    var key  = document.getElementById('file-key').files[0];
-    if (!cert || !key) { showToast('Select both a certificate and key file', 'warn'); return; }
-    fd.append('cert', cert); fd.append('key', key);
+    const cert = document.getElementById('file-cert').files[0];
+    const key  = document.getElementById('file-key').files[0];
+    if (!cert || !key) { showToast('Select both a certificate and a key file', 'warn'); return; }
+    fd.append('cert', cert);
+    fd.append('key', key);
   } else {
-    var p12 = document.getElementById('file-p12').files[0];
+    const p12 = document.getElementById('file-p12').files[0];
     if (!p12) { showToast('Select a P12 file', 'warn'); return; }
     fd.append('p12', p12);
   }
   var ca = document.getElementById('file-ca').files[0];
   if (ca) fd.append('ca', ca);
-  btn.disabled = true; status.textContent = 'Uploading…';
+  btn.disabled = true;
+  status.textContent = 'Uploading…';
   try {
-    var res = await fetch('/api/adsb/upload-certs', {method:'POST', body:fd});
-    var data = await res.json();
-    if (data.ok) { showToast(data.message || 'Certificates uploaded', 'success'); status.textContent = 'Uploaded'; }
-    else { showToast(data.error || 'Upload failed', 'error'); status.textContent = 'Error: ' + (data.error||''); }
-  } catch(e) { showToast(e.message, 'error'); status.textContent = 'Error: ' + e.message; }
-  finally { btn.disabled = false; }
+    const res = await fetch('/api/adsb/upload-certs', {method: 'POST', body: fd});
+    const data = await res.json();
+    if (data.ok) {
+      showToast(data.message || 'Certificates uploaded', 'success');
+      status.textContent = 'Uploaded ' + (data.uploaded_at || '');
+    } else {
+      showToast(data.error || 'Upload failed', 'error');
+      status.textContent = 'Error: ' + (data.error || 'unknown');
+    }
+  } catch(e) {
+    showToast(e.message, 'error');
+    status.textContent = 'Error: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // ── Collect ADS-B config ──────────────────────────────────────────────────────
