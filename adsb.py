@@ -660,7 +660,7 @@ function updatePreview() {
     'https://api.airplanes.live/v2/point/' + lat + '/' + lon + '/' + r;
 }
 ['lat','lon','radius'].forEach(function(id){ var el=document.getElementById(id); if(el) el.addEventListener('input',updatePreview); });
-document.addEventListener('DOMContentLoaded', updatePreview);
+document.addEventListener('DOMContentLoaded', function(){ updatePreview(); onTargetModeChange(); });
 
 // ── Collapsible sections ──────────────────────────────────────────────────────
 function toggleSection(id) {
