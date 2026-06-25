@@ -408,7 +408,7 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
 </style>
 </head>
 <body>
-{{ sidebar_html }}
+{{ sidebar_html | safe }}
 <div class="main">
   <div class="page-header">
     <h1>&#9992; ADS-B CoT Bridge</h1>
