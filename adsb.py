@@ -408,7 +408,7 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
 </style>
 </head>
 <body>
-{{ sidebar_html | safe }}
+{{ sidebar_html }}
 <div class="main">
   <div class="page-header">
     <h1>&#9992; ADS-B CoT Bridge</h1>
@@ -926,6 +926,7 @@ function showToast(msg, type) {
 
 def register_routes(app, login_required, load_settings, save_settings):
     from flask import request, jsonify, render_template_string, make_response
+    from markupsafe import Markup
 
     # Register the generic SSH key management routes (same as nodered, cloudtak etc.)
     try:
@@ -951,10 +952,10 @@ def register_routes(app, login_required, load_settings, save_settings):
             installed = _compose_exists()
             running   = _container_running() if installed else False
 
-        sidebar_html = ''
+        sidebar_html = Markup('')
         try:
             from app import render_sidebar, detect_modules
-            sidebar_html = render_sidebar(detect_modules(), 'adsb')
+            sidebar_html = Markup(render_sidebar(detect_modules(), 'adsb'))
         except Exception:
             pass
 
