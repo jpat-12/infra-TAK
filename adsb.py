@@ -739,7 +739,7 @@ function testSsh() {
     method: 'POST', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({config: collectTargetConfig()})
   }).then(function(r){ return r.json(); }).then(function(d){
-    setSshStatus(d.success ? ('✓ Test passed | ' + ((d.output||'').split('\n')[1]||'').trim()) : (d.error || d.output || 'Test failed'), d.success ? 'green' : 'red');
+    setSshStatus(d.success ? ('OK: ' + (d.output||'').trim()) : (d.error || d.output || 'Test failed'), d.success ? 'green' : 'red');
   }).catch(function(e){ setSshStatus(e.message, 'red'); });
 }
 function setSshStatus(msg, color) {
@@ -848,7 +848,7 @@ function pollDeploy() {
       var res = await fetch('/api/adsb/deploy-status');
       var data = await res.json();
       var logEl = document.getElementById('deploy-log');
-      if (logEl && data.log) { logEl.textContent = data.log.join('\n'); logEl.scrollTop = logEl.scrollHeight; }
+      if (logEl && data.log) { logEl.textContent = data.log.join('\\n'); logEl.scrollTop = logEl.scrollHeight; }
       if (!data.running) {
         clearInterval(t);
         document.getElementById('deploy-btn').disabled = false;
