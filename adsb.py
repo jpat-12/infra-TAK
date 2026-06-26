@@ -151,11 +151,10 @@ def _run_compose_local(args, timeout=120):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _build_dockerfile():
+    # adsbcot and all its deps (pytak, aircot, aiohttp, websockets) ship
+    # prebuilt wheels, so no compiler/build tooling is needed on slim.
     return """\
 FROM python:3.11-slim
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        gcc libffi-dev libssl-dev \
-    && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir adsbcot
 ENTRYPOINT ["adsbcot"]
 """
@@ -170,7 +169,11 @@ def _build_compose(cfg, is_remote=False):
     tak_port      = str(int(cfg.get('tak_port', 8087)))
     tls_enabled   = bool(cfg.get('tls_enabled', False))
 
-    feed_url = f'https://api.airplanes.live/v2/point/{lat}/{lon}/{radius}'
+    # NOTE: must be http:// not https://. adsbcot's create_tasks() only spawns a
+    # feed worker when the URL scheme is exactly one of http/file/ws/wss; "https"
+    # matches nothing and the container silently polls nothing. airplanes.live is
+    # behind Cloudflare, which 301-redirects http→https and aiohttp follows it.
+    feed_url = f'http://api.airplanes.live/v2/point/{lat}/{lon}/{radius}'
     cot_url  = f'{"tls" if tls_enabled else "tcp"}://{tak_host}:{tak_port}'
 
     hp = _cert_paths()
@@ -187,7 +190,7 @@ def _build_compose(cfg, is_remote=False):
         if os.path.exists(hp['key']):
             env_lines.append(f'      PYTAK_TLS_CLIENT_KEY: "{cp["key"]}"')
         if os.path.exists(hp['ca']):
-            env_lines.append(f'      PYTAK_TLS_CA_CERT: "{cp["ca"]}"')
+            env_lines.append(f'      PYTAK_TLS_CLIENT_CAFILE: "{cp["ca"]}"')
         env_lines.append('      PYTAK_TLS_DONT_VERIFY: "1"')
 
     env_block = '\n'.join(env_lines)
@@ -664,7 +667,7 @@ function updatePreview() {
   var lon = document.getElementById('lon').value.trim() || '0.0';
   var r   = document.getElementById('radius').value.trim() || '100';
   document.getElementById('feed-url-preview').textContent =
-    'https://api.airplanes.live/v2/point/' + lat + '/' + lon + '/' + r;
+    'http://api.airplanes.live/v2/point/' + lat + '/' + lon + '/' + r;
 }
 ['lat','lon','radius'].forEach(function(id){ var el=document.getElementById(id); if(el) el.addEventListener('input',updatePreview); });
 document.addEventListener('DOMContentLoaded', function(){ updatePreview(); onTargetModeChange(); });
