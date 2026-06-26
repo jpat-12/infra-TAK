@@ -14408,8 +14408,9 @@ def _module_copy(deploy_cfg, local_path, remote_path, timeout=30, log_fn=None):
         if log_fn:
             log_fn(f"  [copy] {local_path} -> {remote_path}")
         try:
-            os.makedirs(os.path.dirname(remote_path), exist_ok=True)
-            shutil.copy2(local_path, remote_path)
+            dest = os.path.expanduser(remote_path)
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            shutil.copy2(local_path, dest)
             return True, 'ok'
         except Exception as e:
             return False, str(e)[:200]
