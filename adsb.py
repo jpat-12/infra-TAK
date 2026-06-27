@@ -175,14 +175,44 @@ def _build_bridge():
     """
     return '''\
 #!/usr/bin/env python3
-"""infra-TAK adsbcot wrapper with optional callsign-prefix routing."""
+"""infra-TAK adsbcot wrapper: callsign-prefix routing + closest-first priority."""
+import math
 import os
 import adsbcot
 
 _MODE = os.getenv("CALLSIGN_MODE", "all").strip().lower()
 _PREFIX = os.getenv("CALLSIGN_PREFIX", "CAP").strip().upper()
+_CENTER_LAT = float(os.getenv("CENTER_LAT", "0") or 0)
+_CENTER_LON = float(os.getenv("CENTER_LON", "0") or 0)
 
 _orig_process_craft = adsbcot.ADSBWorker.process_craft
+_orig_handle_data = adsbcot.ADSBWorker.handle_data
+
+
+def _center_dist2(craft):
+    """Squared planar distance from the circle center; used only for ordering.
+
+    Aircraft with no position sort as farthest (lowest priority) so they are
+    the first to be dropped if pytak's outbound queue overflows.
+    """
+    try:
+        lat = float(craft.get("lat"))
+        lon = float(craft.get("lon"))
+    except (TypeError, ValueError):
+        return float("inf")
+    dlat = lat - _CENTER_LAT
+    dlon = (lon - _CENTER_LON) * math.cos(math.radians(_CENTER_LAT))
+    return dlat * dlat + dlon * dlon
+
+
+async def handle_data(self, data):
+    # pytak's outbound queue drops the OLDEST event when full, so enqueue the
+    # farthest aircraft first and the closest last: under overload the planes
+    # nearest the circle center are the ones that survive.
+    if isinstance(data, list):
+        data = sorted(data, key=_center_dist2, reverse=True)
+    return await _orig_handle_data(self, data)
+
 
 async def process_craft(self, craft):
     if _MODE in ("exclude", "match_only"):
@@ -194,6 +224,7 @@ async def process_craft(self, craft):
             return None
     return await _orig_process_craft(self, craft)
 
+adsbcot.ADSBWorker.handle_data = handle_data
 adsbcot.ADSBWorker.process_craft = process_craft
 
 from adsbcot.commands import main
@@ -203,7 +234,8 @@ if __name__ == "__main__":
 '''
 
 def _service_env_block(feed_url, cot_url, poll_interval, tls_enabled,
-                       cert_kind, callsign_mode, callsign_prefix):
+                       cert_kind, callsign_mode, callsign_prefix,
+                       lat, lon, max_queue):
     """Build the `environment:` lines for one adsbcot service."""
     hp = _cert_paths(cert_kind)
     cp = _cert_ctr_paths(cert_kind)
@@ -213,6 +245,13 @@ def _service_env_block(feed_url, cot_url, poll_interval, tls_enabled,
         f'      POLL_INTERVAL: "{poll_interval}"',
         f'      CALLSIGN_MODE: "{callsign_mode}"',
         f'      CALLSIGN_PREFIX: "{callsign_prefix}"',
+        # Circle center — bridge.py sorts each poll closest-first to this point.
+        f'      CENTER_LAT: "{lat}"',
+        f'      CENTER_LON: "{lon}"',
+        # pytak outbound/inbound queue caps (default 100/500). Raised so a busy
+        # 250 nm circle doesn't overflow and drop aircraft.
+        f'      MAX_OUT_QUEUE: "{max_queue}"',
+        f'      MAX_IN_QUEUE: "{max_queue}"',
     ]
     if tls_enabled:
         if os.path.exists(hp['cert']):
@@ -258,6 +297,7 @@ def _build_compose(cfg, is_remote=False):
     lon           = str(cfg.get('lon', '0.0'))
     radius        = str(int(cfg.get('radius', 100)))
     poll_interval = str(int(cfg.get('poll_interval', 30)))
+    max_queue     = str(max(100, int(cfg.get('max_queue', 6000))))
     tak_host      = (cfg.get('tak_host') or '').strip()
     tak_port      = str(int(cfg.get('tak_port', 8087)))
     tls_enabled   = bool(cfg.get('tls_enabled', False))
@@ -278,13 +318,15 @@ def _build_compose(cfg, is_remote=False):
     # Main service: 'all' when routing is off, otherwise 'exclude' the prefix.
     main_mode = 'exclude' if cap_enabled else 'all'
     main_env = _service_env_block(feed_url, cot_url, poll_interval, tls_enabled,
-                                  'main', main_mode, cap_prefix)
+                                  'main', main_mode, cap_prefix,
+                                  lat, lon, max_queue)
     blocks = [_service_block(ADSB_CONTAINER, ADSB_CONTAINER, main_env,
                              volumes_block, with_build=True)]
 
     if cap_enabled:
         cap_env = _service_env_block(feed_url, cot_url, poll_interval, tls_enabled,
-                                     'cap', 'match_only', cap_prefix)
+                                     'cap', 'match_only', cap_prefix,
+                                     lat, lon, max_queue)
         blocks.append(_service_block(f'{ADSB_CONTAINER}-cap',
                                      f'{ADSB_CONTAINER}-cap', cap_env,
                                      volumes_block, with_build=False))
@@ -611,11 +653,21 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
                placeholder="100" value="{{ cfg.get('radius', 100) }}">
       </div>
     </div>
-    <div class="form-group" style="max-width:200px">
-      <label class="form-label">Poll Interval (seconds)</label>
-      <input id="poll-interval" class="form-input" type="number" min="5" max="300"
-             value="{{ cfg.get('poll_interval', 30) }}">
-      <div class="hint">30s is a safe default; API allows 1 req/s max.</div>
+    <div class="grid-2">
+      <div class="form-group" style="max-width:200px">
+        <label class="form-label">Poll Interval (seconds)</label>
+        <input id="poll-interval" class="form-input" type="number" min="5" max="300"
+               value="{{ cfg.get('poll_interval', 30) }}">
+        <div class="hint">30s is a safe default; API allows 1 req/s max.</div>
+      </div>
+      <div class="form-group" style="max-width:220px">
+        <label class="form-label">Max queue size (aircraft buffer)</label>
+        <input id="max-queue" class="form-input" type="number" min="100" max="50000"
+               value="{{ cfg.get('max_queue', 6000) }}">
+        <div class="hint">pytak's outbound CoT buffer (default 100). If a busy 250&nbsp;nm
+          circle overflows it, aircraft are dropped &mdash; the closest to center are
+          kept first. Raise if you still see "Queue full" in the logs.</div>
+      </div>
     </div>
     <div class="form-group">
       <label class="form-label" style="margin-bottom:6px">Feed URL preview</label>
@@ -991,6 +1043,7 @@ function collectConfig() {
     lon:           parseFloat(document.getElementById('lon').value) || 0,
     radius:        parseInt(document.getElementById('radius').value) || 100,
     poll_interval: parseInt(document.getElementById('poll-interval').value) || 30,
+    max_queue:     parseInt(document.getElementById('max-queue').value) || 6000,
     tak_host:      document.getElementById('tak-host').value.trim(),
     tak_port:      parseInt(document.getElementById('tak-port').value) || 8087,
     tls_enabled:   document.getElementById('tls-enabled').checked,
@@ -1213,6 +1266,7 @@ def register_routes(app, login_required, load_settings, save_settings):
             'lon':           float(data.get('lon', 0.0)),
             'radius':        radius,
             'poll_interval': max(5, int(data.get('poll_interval', 30))),
+            'max_queue':     max(100, int(data.get('max_queue', 6000))),
             'tak_host':      data['tak_host'].strip(),
             'tak_port':      int(data.get('tak_port', 8087)),
             'tls_enabled':   bool(data.get('tls_enabled', False)),
